@@ -75,10 +75,14 @@ def runDANPOS(command=''):
     parser.add_argument('--------------------------         ',dest="separator1",metavar='',default=None,help="")
     parser.add_argument("-m","--paired", dest="paired",metavar='',default=0,type=int,\
                         help="set to 1 if the input data is mate-pair (paired-end) reads. Ignore this when the input is wiggle format occupancy data ")
+
+    ### Bo: change -q to string, and allow to use ',' to separate different -q values
+
+
     if command=='dtriple':
         parser.add_argument('-p', '--pheight',dest="pheight",metavar='',default='1e-10',\
                             help="occupancy/intensity P value cutoff for calling invidual binding region/peak/position")
-        parser.add_argument('-q', '--height',dest="height",metavar='',default=0,type=float,\
+        parser.add_argument('-q', '--height',dest="height",metavar='',default='0',\
                             help="occupancy/intensity cutoff for calling invidual binding region/peak/position")
         parser.add_argument('-t', '--testcut',dest="testcut",metavar='',default='0',\
                             help="P value cutoff for calling differential region/peak/position between samples (e.g. 1e-10). \
@@ -88,7 +92,7 @@ def runDANPOS(command=''):
     if command=='dregion':
         parser.add_argument('-p', '--pheight',dest="pheight",metavar='',default='1e-10',\
                             help="occupancy/intensity P value cutoff for calling invidual binding region")
-        parser.add_argument('-q', '--height',dest="height",metavar='',default=0,type=float,\
+        parser.add_argument('-q', '--height',dest="height",metavar='',default='0',\
                             help="occupancy/intensity cutoff for calling invidual binding region")
         parser.add_argument('-t', '--testcut',dest="testcut",metavar='',default='0',\
                             help="P value cutoff for calling differential region between samples (e.g. 1e-10). \
@@ -98,7 +102,7 @@ def runDANPOS(command=''):
     if command=='dpeak':
         parser.add_argument('-p', '--pheight',dest="pheight",metavar='',default='1e-10',\
                             help="occupancy/intensity P value cutoff for calling invidual binding peak")
-        parser.add_argument('-q', '--height',dest="height",metavar='',default=0,type=float,\
+        parser.add_argument('-q', '--height',dest="height",metavar='',default='0',\
                             help="occupancy/intensity cutoff for calling invidual binding peak")
         parser.add_argument('-t', '--testcut',dest="testcut",metavar='',default='0',\
                             help="P value cutoff for calling differential peak between samples (e.g. 1e-10). \
@@ -108,7 +112,7 @@ def runDANPOS(command=''):
     if command=='dpos':
         parser.add_argument('-p', '--pheight',dest="pheight",metavar='',default='0',\
                             help="occupancy/intensity P value cutoff for calling invidual binding position")
-        parser.add_argument('-q', '--height',dest="height",metavar='',default=5,type=float,\
+        parser.add_argument('-q', '--height',dest="height",metavar='',default='5',\
                             help="occupancy/intensity cutoff for calling invidual binding position")
         parser.add_argument('-t', '--testcut',dest="testcut",metavar='',default='0',\
                             help="P value cutoff for calling differential position between samples (e.g. 1e-10). \
@@ -300,7 +304,10 @@ def runDANPOS(command=''):
     else:
         print "'--nonzero' must be ste to either 0 or 1"
         return
-    
+
+    ### replace args.height with heights and change value in heights to float
+    heights = [float(x) for x in args.height.split(',')]
+
     if command=='dtriple':
         danpos(\
                #input output args
@@ -309,7 +316,7 @@ def runDANPOS(command=''):
                call_region=args.call_region,region_width=args.region_width,region_distance=args.extend_dis,\
                call_peak=args.call_peak,peak_width=args.peak_width,peak_distance=0,\
                #position calling args
-               call_position=args.call_pos,height=args.height,pheight=pheight,logp=testcut,width=args.width,distance=args.distance,edge=args.edge,fill_gap=args.gapfill,ratio=args.ratio,\
+               call_position=args.call_pos,height=heights,pheight=pheight,logp=testcut,width=args.width,distance=args.distance,edge=args.edge,fill_gap=args.gapfill,ratio=args.ratio,\
                #occupancy processing args
                ref_region=args.position_reference,ref_peak=args.peak_reference,ref_position=args.position_reference,\
                nor=args.nor,nonzero=nonzero,amount=args.count,step=args.span,smooth_width=args.smooth_width,lmd=args.lmd,\
@@ -341,7 +348,7 @@ def runDANPOS(command=''):
                call_position=0,\
                ref_region=args.region_reference,\
                #width=args.width,distance=args.distance,edge=args.edge,fill_gap=args.gapfill
-               height=args.height,pheight=pheight,logp=testcut,\
+               height=heights,pheight=pheight,logp=testcut,\
                #occupancy processing args
                nor=args.nor,nonzero=nonzero,amount=args.count,step=args.span,smooth_width=args.smooth_width,lmd=args.lmd,\
                #reads processing
@@ -372,7 +379,7 @@ def runDANPOS(command=''):
                call_position=0,\
                ref_peak=args.peak_reference,\
                #width=args.width,distance=args.distance,edge=args.edge,fill_gap=args.gapfill,\
-               height=args.height,pheight=pheight,logp=testcut,\
+               height=heights,pheight=pheight,logp=testcut,\
                #occupancy processing args
                nor=args.nor,nonzero=nonzero,amount=args.count,step=args.span,smooth_width=args.smooth_width,lmd=args.lmd,\
                #reads processing
@@ -402,7 +409,7 @@ def runDANPOS(command=''):
                #position calling args
                call_position=1,width=args.width,distance=args.distance,edge=args.edge,fill_gap=args.gapfill,ratio=args.ratio,\
                ref_position=args.position_reference,\
-               height=args.height,pheight=pheight,logp=testcut,\
+               height=heights,pheight=pheight,logp=testcut,\
                #occupancy processing args
                nor=args.nor,nonzero=nonzero,amount=args.count,step=args.span,smooth_width=args.smooth_width,lmd=args.lmd,\
                #reads processing

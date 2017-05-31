@@ -218,22 +218,23 @@ def danpos(tpath=None,tbg=None,opath='./',\
         if call_peak==1:printhead='\npeak'
         else:printhead='\nregion'
         peakgroups,dfpeakgroups,dfpeakgroups2={},{},{}
-        for groupname in pooledgroups:
-            print printhead,'calling for',groupname,'...'
-            peakgroups[groupname]=pooledgroups[groupname].callRegions(ofile=None,width=0,distance=0,pheight=pheight,height=height,calculate_P_value=1,mode='w',title_line=1,pos_only=False)
-            print 'time elapsed:', time()-starttime,'seconds'
-        
-        if len(dfgroups)>0 and logp!=0:
-            for dfname in dfgroups:
-                print printhead,'calling for',dfname,'gaining ...'
-                dfpeakgroups[dfname]=dfgroups[dfname].callRegions(ofile=None,width=0,distance=0,pheight=1,height=logp,calculate_P_value=0,mode='w',title_line=1,pos_only=True)
+        if ref_peak==None:
+            for groupname in pooledgroups:
+                print printhead,'calling for',groupname,'...'
+                peakgroups[groupname]=pooledgroups[groupname].callRegions(ofile=None,width=0,distance=0,pheight=pheight,height=height,calculate_P_value=1,mode='w',title_line=1,pos_only=False)
                 print 'time elapsed:', time()-starttime,'seconds'
-            for dfname in dfgroups:
-                print printhead,'calling for',dfname,'loss ...'
-                dfgroups[dfname].foldChange(-1)
-                dfpeakgroups2[dfname]=dfgroups[dfname].callRegions(ofile=None,width=0,distance=0,pheight=1,height=logp,calculate_P_value=0,mode='w',title_line=1,pos_only=True)
-                dfgroups[dfname].foldChange(-1)
-                print 'time elapsed:', time()-starttime,'seconds'
+            
+            if len(dfgroups)>0 and logp!=0:
+                for dfname in dfgroups:
+                    print printhead,'calling for',dfname,'gaining ...'
+                    dfpeakgroups[dfname]=dfgroups[dfname].callRegions(ofile=None,width=0,distance=0,pheight=1,height=logp,calculate_P_value=0,mode='w',title_line=1,pos_only=True)
+                    print 'time elapsed:', time()-starttime,'seconds'
+                for dfname in dfgroups:
+                    print printhead,'calling for',dfname,'loss ...'
+                    dfgroups[dfname].foldChange(-1)
+                    dfpeakgroups2[dfname]=dfgroups[dfname].callRegions(ofile=None,width=0,distance=0,pheight=1,height=logp,calculate_P_value=0,mode='w',title_line=1,pos_only=True)
+                    dfgroups[dfname].foldChange(-1)
+                    print 'time elapsed:', time()-starttime,'seconds'
     ###### step 12 start --- peak calling --- ######
     
     
@@ -243,6 +244,8 @@ def danpos(tpath=None,tbg=None,opath='./',\
         if ref_peak!=None:
             print 'reading reference peaks from',ref_peak
             peaks=readPeaks(ref_peak)
+            for groupname in pooledgroups:
+                peakgroups[groupname]=readPeaks(ref_peak)
         elif len(pooledgroups)>=1:
             print 'define reference peaks by pooling peaks defined in all samples ...'
             peaks={}

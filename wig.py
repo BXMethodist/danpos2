@@ -1473,7 +1473,7 @@ class Wig:
         Value:
             None
         '''
-        #return True
+        return True
         if step==None:step=self.step
         if not suppress:print 'saving  to '+file
         outf=open(file,"w")
@@ -1745,3 +1745,5 @@ if __name__ == "__main__":
     infile,outfile=sys.argv[1],sys.argv[2]
     wg=Wig(infile)
     wg.callSlopes(ofile=outfile,width=40,swidth=40,mstep=10,height=0,regions=None,slopecut=0.1, large_drop=5)
+
+    
