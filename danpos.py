@@ -316,7 +316,7 @@ def runDANPOS(command=''):
                call_region=args.call_region,region_width=args.region_width,region_distance=args.extend_dis,\
                call_peak=args.call_peak,peak_width=args.peak_width,peak_distance=0,\
                #position calling args
-               call_position=args.call_pos,height=heights,pheight=pheight,logp=testcut,width=args.width,distance=args.distance,edge=args.edge,fill_gap=args.gapfill,ratio=args.ratio,\
+               call_position=args.call_pos,heights=heights,pheight=pheight,logp=testcut,width=args.width,distance=args.distance,edge=args.edge,fill_gap=args.gapfill,ratio=args.ratio,\
                #occupancy processing args
                ref_region=args.position_reference,ref_peak=args.peak_reference,ref_position=args.position_reference,\
                nor=args.nor,nonzero=nonzero,amount=args.count,step=args.span,smooth_width=args.smooth_width,lmd=args.lmd,\
@@ -348,7 +348,7 @@ def runDANPOS(command=''):
                call_position=0,\
                ref_region=args.region_reference,\
                #width=args.width,distance=args.distance,edge=args.edge,fill_gap=args.gapfill
-               height=heights,pheight=pheight,logp=testcut,\
+               heights=heights,pheight=pheight,logp=testcut,\
                #occupancy processing args
                nor=args.nor,nonzero=nonzero,amount=args.count,step=args.span,smooth_width=args.smooth_width,lmd=args.lmd,\
                #reads processing
@@ -379,7 +379,7 @@ def runDANPOS(command=''):
                call_position=0,\
                ref_peak=args.peak_reference,\
                #width=args.width,distance=args.distance,edge=args.edge,fill_gap=args.gapfill,\
-               height=heights,pheight=pheight,logp=testcut,\
+               heights=heights,pheight=pheight,logp=testcut,\
                #occupancy processing args
                nor=args.nor,nonzero=nonzero,amount=args.count,step=args.span,smooth_width=args.smooth_width,lmd=args.lmd,\
                #reads processing
@@ -409,7 +409,7 @@ def runDANPOS(command=''):
                #position calling args
                call_position=1,width=args.width,distance=args.distance,edge=args.edge,fill_gap=args.gapfill,ratio=args.ratio,\
                ref_position=args.position_reference,\
-               height=heights,pheight=pheight,logp=testcut,\
+               heights=heights,pheight=pheight,logp=testcut,\
                #occupancy processing args
                nor=args.nor,nonzero=nonzero,amount=args.count,step=args.span,smooth_width=args.smooth_width,lmd=args.lmd,\
                #reads processing

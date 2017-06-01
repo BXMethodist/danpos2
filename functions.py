@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from time import time
+from copy import deepcopy
 import numpy,glob,os
 from wigs import Wigs
 from wig import Wig
@@ -13,7 +14,7 @@ import re,sys
 
 def danpos(tpath=None,tbg=None,opath='./',\
            nonzero=False,amount=None,nor='Q',region_file=None,test="P",save=True,fdr=0,\
-           pheight=1e-5,height=5,logp=5,\
+           pheight=1e-5,heights=5,logp=5,\
            call_position=1,ref_position=None,both=True,width=40,distance=165,fill_gap=False,fill_value=1,edge=1,fcut=None,rd=None,ratio=0.9,\
            call_peak=0,ref_peak=None,peak_distance=0,peak_width=40,\
            call_region=0,ref_region=None,region_distance=3000,region_width=40,\
@@ -179,263 +180,270 @@ def danpos(tpath=None,tbg=None,opath='./',\
             print 'time elapsed:', time()-starttime,'seconds'
 
     ###### step 8 end --- smoothing --- ######
-
-    ###### step 10 start --- pooling --- ######
-    pooledgroups={}
-    all_wig=all_wig_format(path=tpath)
-    for groupname in groups:
-        print "\npooling group",groupname,"..."
-        if not os.path.isdir(os.path.join(opath,'pooled')):os.mkdir(os.path.join(opath,'pooled'))
-        filenames=groups[groupname].keys()
-        pooledgroups[groupname]=groups[groupname].pop(filenames[0])
-        if len(filenames)>1:
-            for filename in filenames[1:]:pooledgroups[groupname].add(groups[groupname].pop(filename))
-            pooledgroups[groupname].foldChange(1.0/len(filenames))
-        if (not save) and (smooth_width>1):pooledgroups[groupname].smooth(smooth_width)#if not save, the smoothing will be done here; else it have been done before replicate position calling
-        if (len(filenames)>1) or (smooth_width>1) or (cut!='0') or (nor!='N') or (tbg!=None) or (amount!=None) or (not all_wig): pooledgroups[groupname].save(os.path.join(opath,'pooled',groupname+addname[groupname]+"wig"),format=wgfmt,step=step)
-        print 'time elapsed:', time()-starttime,'seconds'
-    groups=''
-    ###### step 10 end --- pooling --- ######
-
-
-    ###### step 11 start --- differential testing ######
-    testname={'C':'.chisq_diff.','F':'.fold_diff.','P':'.pois_diff.','S':'.sub_diff.','L':'.lsub_diff.'}
-    dfgroups={}
-    for i in range(len(pairs)):
-        if len(pairs[i])<2:continue
-        if (pairs[i][0]=='None') or (pairs[i][1]=='None'):continue
-        dfname=':'.join(pairs[i])
-        print '\ndifferential test for',dfname,'...'
-        dfgroups[dfname]=pooledgroups[pairs[i][0]].dfTest(test=test,cwig=pooledgroups[pairs[i][1]])
-        #if len(dfgroups)>0:
-        if not os.path.isdir(os.path.join(opath,'diff')):os.mkdir(os.path.join(opath,'diff'))
-        for dfname in dfgroups:dfgroups[dfname].save(os.path.join(opath,'diff',re.sub(':','-',dfname+testname[test]+"wig")),format=wgfmt,step=step)
-        print 'time elapsed:', time()-starttime,'seconds'
-    ###### step 11 end --- differential testing --- ######
-    
-    ###### step 12 start --- peak calling --- ######
-    if (call_region==1 ) or (call_peak==1):
-        if call_peak==1:printhead='\npeak'
-        else:printhead='\nregion'
-        peakgroups,dfpeakgroups,dfpeakgroups2={},{},{}
-        if ref_peak==None:
-            for groupname in pooledgroups:
-                print printhead,'calling for',groupname,'...'
-                peakgroups[groupname]=pooledgroups[groupname].callRegions(ofile=None,width=0,distance=0,pheight=pheight,height=height,calculate_P_value=1,mode='w',title_line=1,pos_only=False)
-                print 'time elapsed:', time()-starttime,'seconds'
-            
-            if len(dfgroups)>0 and logp!=0:
-                for dfname in dfgroups:
-                    print printhead,'calling for',dfname,'gaining ...'
-                    dfpeakgroups[dfname]=dfgroups[dfname].callRegions(ofile=None,width=0,distance=0,pheight=1,height=logp,calculate_P_value=0,mode='w',title_line=1,pos_only=True)
-                    print 'time elapsed:', time()-starttime,'seconds'
-                for dfname in dfgroups:
-                    print printhead,'calling for',dfname,'loss ...'
-                    dfgroups[dfname].foldChange(-1)
-                    dfpeakgroups2[dfname]=dfgroups[dfname].callRegions(ofile=None,width=0,distance=0,pheight=1,height=logp,calculate_P_value=0,mode='w',title_line=1,pos_only=True)
-                    dfgroups[dfname].foldChange(-1)
-                    print 'time elapsed:', time()-starttime,'seconds'
-    ###### step 12 start --- peak calling --- ######
-    
-    
-    
-    ###### step 12 start --- peak calling --- ######
-    if call_peak==1:
-        if ref_peak!=None:
-            print 'reading reference peaks from',ref_peak
-            peaks=readPeaks(ref_peak)
-            for groupname in pooledgroups:
-                peakgroups[groupname]=readPeaks(ref_peak)
-        elif len(pooledgroups)>=1:
-            print 'define reference peaks by pooling peaks defined in all samples ...'
-            peaks={}
-            if len(pooledgroups)>1:
-                if call_peak==1:print '\nmerging peaks from all groups ...'
-                else:print '\nmerging regions from all groups ...'
-            peak_group_list=[peakgroups]
-            if len(dfgroups)>0 and logp!=0:peak_group_list+=[dfpeakgroups,dfpeakgroups2] 
-            for temp_peak_group in peak_group_list:#merge positions from all group into regions
-                for name in temp_peak_group:
-                    temp_peaks=temp_peak_group[name]
-                    for chr in temp_peaks:
-                        if not peaks.has_key(chr):peaks[chr]={}
-                        for pos in temp_peaks[chr]:
-                            if not peaks[chr].has_key(pos):peaks[chr][pos]=temp_peaks[chr][pos]
-                            elif peaks[chr][pos]<temp_peaks[chr][pos]:peaks[chr][pos]=temp_peaks[chr][pos]
-            peaks=merge_peaks_by_head_tail_distance(peaks=peaks,distance=0)
-
-        print '\nretriving peak values for each group ...'
-        for groupname in pooledgroups:
-            print groupname
-            #temp_peaks=merge_peaks_by_head_tail_distance(peaks=peakgroups[groupname],distance=0)
-            pooledgroups[groupname].fillRegions(regions=peakgroups[groupname],file=os.path.join(opath,'pooled',groupname+addname[groupname]+"peaks.xls"),pheight=pheight,height=height,width=peak_width,calculate_P_value=1,pos_only=False)
-            if len(pooledgroups)>1:pooledgroups[groupname].fillRegions(regions=peaks,file=os.path.join(opath,'pooled',groupname+addname[groupname]+"refpeaks.xls"),pheight=pheight,height=height,width=peak_width,calculate_P_value=1,pos_only=False)
-        if len(dfgroups)>0:
-            for dfname in dfgroups:
-                print dfname
-                if logp!=0:temp_peaks=merge_peaks_by_head_tail_distance(peaks=dfpeakgroups[dfname],distance=0)
-                if logp!=0:dfgroups[dfname].fillRegions(regions=temp_peaks,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.peaks.xls")),pheight=pheight,height=logp,width=peak_width,calculate_P_value=0,pos_only=True)
-                dfgroups[dfname].fillRegions(regions=peaks,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.refpeaks.xls")),pheight=pheight,height=logp,width=peak_width,calculate_P_value=0,pos_only=True)
-                dfgroups[dfname].foldChange(-1)
-                if logp!=0:temp_peaks=merge_peaks_by_head_tail_distance(peaks=dfpeakgroups2[dfname],distance=0)
-                if logp!=0:dfgroups[dfname].fillRegions(regions=temp_peaks,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.peaks.xls")),pheight=pheight,height=logp,width=peak_width,calculate_P_value=0,pos_only=True)
-                dfgroups[dfname].fillRegions(regions=peaks,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.refpeaks.xls")),pheight=pheight,height=logp,width=peak_width,calculate_P_value=0,pos_only=True)
-                dfgroups[dfname].foldChange(-1)
-        if call_region!=1: print 'time elapsed:', time()-starttime,'seconds'
-    ###### step 12 start --- peak calling --- ######
-
-    ###### step 12 start --- peaks to regions --- ######
-    if call_region==1:
-        regiongroups=deepcopy(peakgroups)
-        for groupname in pooledgroups:
-            print groupname
-            regiongroups[groupname]=merge_peaks_by_head_tail_distance(peaks=regiongroups[groupname],wg=pooledgroups[groupname],distance=region_distance,eratio=eratio,eheight=eheight,epheight=epheight)
-        if ref_region!=None:
-            print 'reading reference regions from',ref_region
-            regions=readPeaks(ref_region)
-        elif len(pooledgroups)>=1:
-            print 'define reference regions by pooling regions defined in all sample ...'
-            regions={}
-            if len(pooledgroups)>1:
-                if call_peak==1:print '\nmerging peaks from all groups ...'
-                else:print '\nmerging regions from all groups ...'
-            peak_group_list=[regiongroups]
-            if len(dfgroups)>0 and logp!=0:peak_group_list+=[dfpeakgroups,dfpeakgroups2] 
-            for temp_peak_group in peak_group_list:#merge positions from all group into regions
-                for name in temp_peak_group:
-                    temp_peaks=temp_peak_group[name]
-                    for chr in temp_peaks:
-                        if not regions.has_key(chr):regions[chr]={}
-                        for pos in temp_peaks[chr]:
-                            if not regions[chr].has_key(pos):regions[chr][pos]=temp_peaks[chr][pos]
-                            elif regions[chr][pos]<temp_peaks[chr][pos]:regions[chr][pos]=temp_peaks[chr][pos]
-            regions=merge_peaks_by_head_tail_distance(peaks=regions,distance=0)
-        print '\nretriving region values for each group ...'
-        for groupname in pooledgroups:
-            print groupname
-            pooledgroups[groupname].fillRegions(regions=regiongroups[groupname],file=os.path.join(opath,'pooled',groupname+addname[groupname]+"regions.xls"),pheight=epheight,height=eheight,width=region_width,calculate_P_value=1,pos_only=False)
-            if ref_region!=None or len(pooledgroups)>1:pooledgroups[groupname].fillRegions(regions=regions,file=os.path.join(opath,'pooled',groupname+addname[groupname]+"refregions.xls"),pheight=epheight,height=eheight,width=region_width,calculate_P_value=1,pos_only=False)
-        if len(dfgroups)>0:
-            for dfname in dfgroups:
-                print dfname
-                if logp!=0:temp_peaks=merge_peaks_by_head_tail_distance(peaks=dfpeakgroups[dfname],distance=0)
-                if logp!=0:dfgroups[dfname].fillRegions(regions=temp_peaks,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.regions.xls")),pheight=pheight,height=logp,width=region_width,calculate_P_value=0,pos_only=True)
-                dfgroups[dfname].fillRegions(regions=regions,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.refregions.xls")),pheight=pheight,height=logp,width=region_width,calculate_P_value=0,pos_only=True)
-                dfgroups[dfname].foldChange(-1)
-                if logp!=0:temp_peaks=merge_peaks_by_head_tail_distance(peaks=dfpeakgroups2[dfname],distance=0)
-                if logp!=0:dfgroups[dfname].fillRegions(regions=regions,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.regions.xls")),pheight=pheight,height=logp,width=region_width,calculate_P_value=0,pos_only=True)
-                dfgroups[dfname].fillRegions(regions=regions,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.refregions.xls")),pheight=pheight,height=logp,width=region_width,calculate_P_value=0,pos_only=True)
-                dfgroups[dfname].foldChange(-1)
-        print 'time elapsed:', time()-starttime,'seconds'
-    ###### step 12 end --- peaks to regions --- ######
-
- 
-    
-    ###### step 12 start --- position calling --- ######
-    if call_position==1:
-        if call_region==0 and call_peak==0: peaks=None
-        smtgroups={}
-        positionFiles=[]
-        for groupname in pooledgroups:
-            print '\nposition calling for',groupname,'...'
-            positionFiles.append(os.path.join(opath,'pooled',groupname+addname[groupname]+"positions.xls"))
-            smtgroups[groupname]=pooledgroups[groupname].callPositions(os.path.join(opath,'pooled',groupname+addname[groupname]+"positions.xls"),width=width,distance=distance,edge=0,fill_gap=fill_gap,fill_value=fill_value,pcut=pheight,height=height,calculate_P_value=0,poscal=1,regions=peaks,rd=rd)
+    ### Bo: just let the danpos for loop through different height cutoff
+    output_path = opath
+    groups_copy = deepcopy(groups)
+    for height in heights:
+        # opath = output_path + '_' + str(int(height))
+        groups = deepcopy(groups_copy)
+        if not os.path.isdir(opath):
+            os.mkdir(opath)
+        ###### step 10 start --- pooling --- ######
+        pooledgroups={}
+        all_wig=all_wig_format(path=tpath)
+        for groupname in groups:
+            print "\npooling group",groupname,"..."
+            if not os.path.isdir(os.path.join(opath,'pooled')):os.mkdir(os.path.join(opath,'pooled'))
+            filenames=groups[groupname].keys()
+            pooledgroups[groupname]=groups[groupname].pop(filenames[0])
+            if len(filenames)>1:
+                for filename in filenames[1:]:pooledgroups[groupname].add(groups[groupname].pop(filename))
+                pooledgroups[groupname].foldChange(1.0/len(filenames))
+            if (not save) and (smooth_width>1):pooledgroups[groupname].smooth(smooth_width)#if not save, the smoothing will be done here; else it have been done before replicate position calling
+            if (len(filenames)>1) or (smooth_width>1) or (cut!='0') or (nor!='N') or (tbg!=None) or (amount!=None) or (not all_wig): pooledgroups[groupname].save(os.path.join(opath,'pooled',groupname+addname[groupname]+"wig"),format=wgfmt,step=step)
             print 'time elapsed:', time()-starttime,'seconds'
-        if ref_position!=None:
-            print '\nreading reference positions from',ref_position
-            refdic=readPositions(ref_position)
-        else:
-            if len(pooledgroups)>1:print '\ndefining a set of reference positions by pooling positions defined in all samples...'
-            refdic=refPositions(positionFiles=positionFiles,distance=distance)
-            if len(pooledgroups)>1:
-                fo=open(os.path.join(opath,'reference_positions.xls'),'w')
-                fo.write('chr\tpos\n')
-                for chr in refdic:
-                    i,lth=0,len(refdic[chr]['p'])
-                    while i<lth:
-                        fo.write(chr+'\t'+str(refdic[chr]['p'][i])+'\n')#+str(refdic[chr]['v'][i])+'\n')
-                        i+=1
-                
-        for groupname in pooledgroups:
-            if len(pooledgroups)<2:continue
-            print '\nfine-tuning positions for',groupname,'by comparing to the reference map ...'
-            tdic=positionAdjust(dic=refdic,infile=os.path.join(opath,'pooled',groupname+addname[groupname]+"positions.xls"),outfile=None,wg=pooledgroups[groupname],distance=distance,fcut=fcut,hdiff=hdiff)
-            pooledgroups[groupname].fillPositions(dic=tdic,file=os.path.join(opath,'pooled',groupname+addname[groupname]+"positions.ref_adjust.xls"),width=width,distance=distance,edge=edge,pcut=pheight,height=height,calculate_P_value=1,mode='w',title_line=1,poscal=1,rd=rd)
-        
+        # groups=''
+        ###### step 10 end --- pooling --- ######
+
+
+        ###### step 11 start --- differential testing ######
+        testname={'C':'.chisq_diff.','F':'.fold_diff.','P':'.pois_diff.','S':'.sub_diff.','L':'.lsub_diff.'}
+        dfgroups={}
+        for i in range(len(pairs)):
+            if len(pairs[i])<2:continue
+            if (pairs[i][0]=='None') or (pairs[i][1]=='None'):continue
+            dfname=':'.join(pairs[i])
+            print '\ndifferential test for',dfname,'...'
+            dfgroups[dfname]=pooledgroups[pairs[i][0]].dfTest(test=test,cwig=pooledgroups[pairs[i][1]])
+            #if len(dfgroups)>0:
+            if not os.path.isdir(os.path.join(opath,'diff')):os.mkdir(os.path.join(opath,'diff'))
+            for dfname in dfgroups:dfgroups[dfname].save(os.path.join(opath,'diff',re.sub(':','-',dfname+testname[test]+"wig")),format=wgfmt,step=step)
+            print 'time elapsed:', time()-starttime,'seconds'
+        ###### step 11 end --- differential testing --- ######
+
+        ###### step 12 start --- peak calling --- ######
+        if (call_region==1 ) or (call_peak==1):
+            if call_peak==1:printhead='\npeak'
+            else:printhead='\nregion'
+            peakgroups,dfpeakgroups,dfpeakgroups2={},{},{}
+            if ref_peak==None:
+                for groupname in pooledgroups:
+                    print printhead,'calling for',groupname,'...'
+                    peakgroups[groupname]=pooledgroups[groupname].callRegions(ofile=None,width=0,distance=0,pheight=pheight,height=height,calculate_P_value=1,mode='w',title_line=1,pos_only=False)
+                    print 'time elapsed:', time()-starttime,'seconds'
+
+                if len(dfgroups)>0 and logp!=0:
+                    for dfname in dfgroups:
+                        print printhead,'calling for',dfname,'gaining ...'
+                        dfpeakgroups[dfname]=dfgroups[dfname].callRegions(ofile=None,width=0,distance=0,pheight=1,height=logp,calculate_P_value=0,mode='w',title_line=1,pos_only=True)
+                        print 'time elapsed:', time()-starttime,'seconds'
+                    for dfname in dfgroups:
+                        print printhead,'calling for',dfname,'loss ...'
+                        dfgroups[dfname].foldChange(-1)
+                        dfpeakgroups2[dfname]=dfgroups[dfname].callRegions(ofile=None,width=0,distance=0,pheight=1,height=logp,calculate_P_value=0,mode='w',title_line=1,pos_only=True)
+                        dfgroups[dfname].foldChange(-1)
+                        print 'time elapsed:', time()-starttime,'seconds'
+        ###### step 12 start --- peak calling --- ######
+
+
+
+        ###### step 12 start --- peak calling --- ######
+        if call_peak==1:
+            if ref_peak!=None:
+                print 'reading reference peaks from',ref_peak
+                peaks=readPeaks(ref_peak)
+                for groupname in pooledgroups:
+                    peakgroups[groupname]=readPeaks(ref_peak)
+            elif len(pooledgroups)>=1:
+                print 'define reference peaks by pooling peaks defined in all samples ...'
+                peaks={}
+                if len(pooledgroups)>1:
+                    if call_peak==1:print '\nmerging peaks from all groups ...'
+                    else:print '\nmerging regions from all groups ...'
+                peak_group_list=[peakgroups]
+                if len(dfgroups)>0 and logp!=0:peak_group_list+=[dfpeakgroups,dfpeakgroups2]
+                for temp_peak_group in peak_group_list:#merge positions from all group into regions
+                    for name in temp_peak_group:
+                        temp_peaks=temp_peak_group[name]
+                        for chr in temp_peaks:
+                            if not peaks.has_key(chr):peaks[chr]={}
+                            for pos in temp_peaks[chr]:
+                                if not peaks[chr].has_key(pos):peaks[chr][pos]=temp_peaks[chr][pos]
+                                elif peaks[chr][pos]<temp_peaks[chr][pos]:peaks[chr][pos]=temp_peaks[chr][pos]
+                peaks=merge_peaks_by_head_tail_distance(peaks=peaks,distance=0)
+
+            print '\nretriving peak values for each group ...'
+            for groupname in pooledgroups:
+                print groupname
+                #temp_peaks=merge_peaks_by_head_tail_distance(peaks=peakgroups[groupname],distance=0)
+                pooledgroups[groupname].fillRegions(regions=peakgroups[groupname],file=os.path.join(opath,'pooled',groupname+addname[groupname]+"peaks_"+str(int(height))+".xls"),pheight=pheight,height=height,width=peak_width,calculate_P_value=1,pos_only=False)
+                if len(pooledgroups)>1:pooledgroups[groupname].fillRegions(regions=peaks,file=os.path.join(opath,'pooled',groupname+addname[groupname]+"refpeaks.xls"),pheight=pheight,height=height,width=peak_width,calculate_P_value=1,pos_only=False)
+            if len(dfgroups)>0:
+                for dfname in dfgroups:
+                    print dfname
+                    if logp!=0:temp_peaks=merge_peaks_by_head_tail_distance(peaks=dfpeakgroups[dfname],distance=0)
+                    if logp!=0:dfgroups[dfname].fillRegions(regions=temp_peaks,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.peaks.xls")),pheight=pheight,height=logp,width=peak_width,calculate_P_value=0,pos_only=True)
+                    dfgroups[dfname].fillRegions(regions=peaks,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.refpeaks.xls")),pheight=pheight,height=logp,width=peak_width,calculate_P_value=0,pos_only=True)
+                    dfgroups[dfname].foldChange(-1)
+                    if logp!=0:temp_peaks=merge_peaks_by_head_tail_distance(peaks=dfpeakgroups2[dfname],distance=0)
+                    if logp!=0:dfgroups[dfname].fillRegions(regions=temp_peaks,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.peaks.xls")),pheight=pheight,height=logp,width=peak_width,calculate_P_value=0,pos_only=True)
+                    dfgroups[dfname].fillRegions(regions=peaks,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.refpeaks.xls")),pheight=pheight,height=logp,width=peak_width,calculate_P_value=0,pos_only=True)
+                    dfgroups[dfname].foldChange(-1)
+            if call_region!=1: print 'time elapsed:', time()-starttime,'seconds'
+        ###### step 12 start --- peak calling --- ######
+
+        ###### step 12 start --- peaks to regions --- ######
+        if call_region==1:
+            regiongroups=deepcopy(peakgroups)
+            for groupname in pooledgroups:
+                print groupname
+                regiongroups[groupname]=merge_peaks_by_head_tail_distance(peaks=regiongroups[groupname],wg=pooledgroups[groupname],distance=region_distance,eratio=eratio,eheight=eheight,epheight=epheight)
+            if ref_region!=None:
+                print 'reading reference regions from',ref_region
+                regions=readPeaks(ref_region)
+            elif len(pooledgroups)>=1:
+                print 'define reference regions by pooling regions defined in all sample ...'
+                regions={}
+                if len(pooledgroups)>1:
+                    if call_peak==1:print '\nmerging peaks from all groups ...'
+                    else:print '\nmerging regions from all groups ...'
+                peak_group_list=[regiongroups]
+                if len(dfgroups)>0 and logp!=0:peak_group_list+=[dfpeakgroups,dfpeakgroups2]
+                for temp_peak_group in peak_group_list:#merge positions from all group into regions
+                    for name in temp_peak_group:
+                        temp_peaks=temp_peak_group[name]
+                        for chr in temp_peaks:
+                            if not regions.has_key(chr):regions[chr]={}
+                            for pos in temp_peaks[chr]:
+                                if not regions[chr].has_key(pos):regions[chr][pos]=temp_peaks[chr][pos]
+                                elif regions[chr][pos]<temp_peaks[chr][pos]:regions[chr][pos]=temp_peaks[chr][pos]
+                regions=merge_peaks_by_head_tail_distance(peaks=regions,distance=0)
+            print '\nretriving region values for each group ...'
+            for groupname in pooledgroups:
+                print groupname
+                pooledgroups[groupname].fillRegions(regions=regiongroups[groupname],file=os.path.join(opath,'pooled',groupname+addname[groupname]+"regions_"+str(int(height))+".xls"),pheight=epheight,height=eheight,width=region_width,calculate_P_value=1,pos_only=False)
+                if ref_region!=None or len(pooledgroups)>1:pooledgroups[groupname].fillRegions(regions=regions,file=os.path.join(opath,'pooled',groupname+addname[groupname]+"refregions.xls"),pheight=epheight,height=eheight,width=region_width,calculate_P_value=1,pos_only=False)
+            if len(dfgroups)>0:
+                for dfname in dfgroups:
+                    print dfname
+                    if logp!=0:temp_peaks=merge_peaks_by_head_tail_distance(peaks=dfpeakgroups[dfname],distance=0)
+                    if logp!=0:dfgroups[dfname].fillRegions(regions=temp_peaks,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.regions.xls")),pheight=pheight,height=logp,width=region_width,calculate_P_value=0,pos_only=True)
+                    dfgroups[dfname].fillRegions(regions=regions,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.refregions.xls")),pheight=pheight,height=logp,width=region_width,calculate_P_value=0,pos_only=True)
+                    dfgroups[dfname].foldChange(-1)
+                    if logp!=0:temp_peaks=merge_peaks_by_head_tail_distance(peaks=dfpeakgroups2[dfname],distance=0)
+                    if logp!=0:dfgroups[dfname].fillRegions(regions=regions,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.regions.xls")),pheight=pheight,height=logp,width=region_width,calculate_P_value=0,pos_only=True)
+                    dfgroups[dfname].fillRegions(regions=regions,file=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.refregions.xls")),pheight=pheight,height=logp,width=region_width,calculate_P_value=0,pos_only=True)
+                    dfgroups[dfname].foldChange(-1)
+            print 'time elapsed:', time()-starttime,'seconds'
+        ###### step 12 end --- peaks to regions --- ######
+
+
+
+        ###### step 12 start --- position calling --- ######
+        if call_position==1:
+            if call_region==0 and call_peak==0: peaks=None
+            smtgroups={}
+            positionFiles=[]
+            for groupname in pooledgroups:
+                print '\nposition calling for',groupname,'...'
+                positionFiles.append(os.path.join(opath,'pooled',groupname+addname[groupname]+"positions.xls"))
+                smtgroups[groupname]=pooledgroups[groupname].callPositions(os.path.join(opath,'pooled',groupname+addname[groupname]+"positions.xls"),width=width,distance=distance,edge=0,fill_gap=fill_gap,fill_value=fill_value,pcut=pheight,height=height,calculate_P_value=0,poscal=1,regions=peaks,rd=rd)
+                print 'time elapsed:', time()-starttime,'seconds'
+            if ref_position!=None:
+                print '\nreading reference positions from',ref_position
+                refdic=readPositions(ref_position)
+            else:
+                if len(pooledgroups)>1:print '\ndefining a set of reference positions by pooling positions defined in all samples...'
+                refdic=refPositions(positionFiles=positionFiles,distance=distance)
+                if len(pooledgroups)>1:
+                    fo=open(os.path.join(opath,'reference_positions.xls'),'w')
+                    fo.write('chr\tpos\n')
+                    for chr in refdic:
+                        i,lth=0,len(refdic[chr]['p'])
+                        while i<lth:
+                            fo.write(chr+'\t'+str(refdic[chr]['p'][i])+'\n')#+str(refdic[chr]['v'][i])+'\n')
+                            i+=1
+
+            for groupname in pooledgroups:
+                if len(pooledgroups)<2:continue
+                print '\nfine-tuning positions for',groupname,'by comparing to the reference map ...'
+                tdic=positionAdjust(dic=refdic,infile=os.path.join(opath,'pooled',groupname+addname[groupname]+"positions.xls"),outfile=None,wg=pooledgroups[groupname],distance=distance,fcut=fcut,hdiff=hdiff)
+                pooledgroups[groupname].fillPositions(dic=tdic,file=os.path.join(opath,'pooled',groupname+addname[groupname]+"positions.ref_adjust.xls"),width=width,distance=distance,edge=edge,pcut=pheight,height=height,calculate_P_value=1,mode='w',title_line=1,poscal=1,rd=rd)
+
+            if len(dfgroups)>0:
+                dsmtgroups,dsmtgroups2={},{}
+                if logp!=0:
+                    for dfname in dfgroups:
+                        print '\nposition calling for',dfname,'gaining ...'
+                        dsmtgroups[dfname]=dfgroups[dfname].callPositions(re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"gain.positions.xls")),width=width,distance=distance,edge=edge,fill_gap=0,fill_value=fill_value,pcut=1,height=logp,calculate_P_value=0,poscal=0,regions=peaks)
+                        print 'time elapsed:', time()-starttime,'seconds'
+                    for dfname in dfgroups:
+                        print '\nposition calling for',dfname,'loss ...'
+                        dfgroups[dfname].foldChange(-1)
+                        dsmtgroups2[dfname]=dfgroups[dfname].callPositions(re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"loss.positions.xls")),width=width,distance=distance,edge=edge,fill_gap=0,fill_value=fill_value,pcut=1,height=logp,calculate_P_value=0,poscal=0,regions=peaks)
+                        dfgroups[dfname].foldChange(-1)
+                        print 'time elapsed:', time()-starttime,'seconds'
+        ###### step 12 end --- position calling --- ######
+
+
+
+        ###### step 13 start --- map differential positions to nucleosome positions --- ######
         if len(dfgroups)>0:
-            dsmtgroups,dsmtgroups2={},{}
-            if logp!=0:
-                for dfname in dfgroups:
-                    print '\nposition calling for',dfname,'gaining ...'
-                    dsmtgroups[dfname]=dfgroups[dfname].callPositions(re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"gain.positions.xls")),width=width,distance=distance,edge=edge,fill_gap=0,fill_value=fill_value,pcut=1,height=logp,calculate_P_value=0,poscal=0,regions=peaks)
+            for dfname in dfgroups:
+                groupnames=dfname.split(':')
+                tgs=0
+                for cr in dfgroups[dfname].data:tgs+=dfgroups[dfname].data[cr].size
+                fdrsimu=min(100000,max(10000,tgs/1000))
+                if call_position==1:
+                    print '\nposition level integrative analysis for', dfname, '...'
+                    #if fdr==1:
+                    print 'FDR simulation ...'
+                    occFDRlist=occFDR(dwig=dfgroups[dfname],simu=fdrsimu,regions=peaks)
+                    fuzFDRlist=fuzFDR(cwig=pooledgroups[groupnames[1]],twig=pooledgroups[groupnames[0]],simu=fdrsimu,rd=rd,regions=peaks)
+                    #else:occFDRlist,fuzFDRlist=None,None
+                    print 'analyzing ...'
+                    if logp!=0:gainPositionFile,lossPositionFile=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"gain.positions.xls")),re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"loss.positions.xls"))
+                    else:gainPositionFile,lossPositionFile=None,None
+                    allPositionsInOneFile(controlPositionFile=os.path.join(opath,'pooled',groupnames[1]+addname[groupnames[1]]+"positions.ref_adjust.xls"),\
+                                      treatPositionFile=os.path.join(opath,'pooled',groupnames[0]+addname[groupnames[0]]+"positions.ref_adjust.xls"),\
+                    gainPositionFile=gainPositionFile,lossPositionFile=lossPositionFile,\
+                    ofile=re.sub(':','-',os.path.join(opath,dfname+".positions.integrative.xls")),\
+                    cwig=pooledgroups[groupnames[1]],twig=pooledgroups[groupnames[0]],dwig=dfgroups[dfname],\
+                    dis=distance,rd=rd,test=test,fdrsimu=0,fdrRegions=peaks,occFDRlist=occFDRlist,fuzFDRlist=fuzFDRlist,fdr=fdr)
                     print 'time elapsed:', time()-starttime,'seconds'
-                for dfname in dfgroups:
-                    print '\nposition calling for',dfname,'loss ...'
-                    dfgroups[dfname].foldChange(-1)
-                    dsmtgroups2[dfname]=dfgroups[dfname].callPositions(re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"loss.positions.xls")),width=width,distance=distance,edge=edge,fill_gap=0,fill_value=fill_value,pcut=1,height=logp,calculate_P_value=0,poscal=0,regions=peaks)
-                    dfgroups[dfname].foldChange(-1)
+                if call_peak==1:
+                    print '\npeak level integrative analysis for', dfname, '...'
+                    print 'FDR simulation ...'
+                    fdrlist=peakFDR(peakFile1=os.path.join(opath,'pooled',groupnames[1]+addname[groupnames[1]]+"refpeaks.xls"),\
+                                wg1=pooledgroups[groupnames[1]],wg2=pooledgroups[groupnames[0]],fdrsimu=fdrsimu,cut=height)
+                    print 'analyzing ...'
+                    region_differential(file1=os.path.join(opath,'pooled',groupnames[1]+addname[groupnames[1]]+"refpeaks.xls"),\
+                                        file2=os.path.join(opath,'pooled',groupnames[0]+addname[groupnames[0]]+"refpeaks.xls"),\
+                                        gainFile=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.refpeaks.xls")),\
+                                        lossFile=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.refpeaks.xls")),\
+                    ofile=re.sub(':','-',os.path.join(opath,dfname+".peaks.integrative.xls")),widthFDRlist=fdrlist[0],\
+                    smtFDRlist=fdrlist[1],aucFDRlist=fdrlist[2],step=step,fdr=fdr)
                     print 'time elapsed:', time()-starttime,'seconds'
-    ###### step 12 end --- position calling --- ######
-    
-    
-    
-    ###### step 13 start --- map differential positions to nucleosome positions --- ######
-    if len(dfgroups)>0:
-        for dfname in dfgroups:
-            groupnames=dfname.split(':')
-            tgs=0
-            for cr in dfgroups[dfname].data:tgs+=dfgroups[dfname].data[cr].size
-            fdrsimu=min(100000,max(10000,tgs/1000))
-            if call_position==1:
-                print '\nposition level integrative analysis for', dfname, '...'
-                #if fdr==1:
-                print 'FDR simulation ...'
-                occFDRlist=occFDR(dwig=dfgroups[dfname],simu=fdrsimu,regions=peaks)
-                fuzFDRlist=fuzFDR(cwig=pooledgroups[groupnames[1]],twig=pooledgroups[groupnames[0]],simu=fdrsimu,rd=rd,regions=peaks)
-                #else:occFDRlist,fuzFDRlist=None,None
-                print 'analyzing ...'
-                if logp!=0:gainPositionFile,lossPositionFile=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"gain.positions.xls")),re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"loss.positions.xls"))
-                else:gainPositionFile,lossPositionFile=None,None
-                allPositionsInOneFile(controlPositionFile=os.path.join(opath,'pooled',groupnames[1]+addname[groupnames[1]]+"positions.ref_adjust.xls"),\
-                                  treatPositionFile=os.path.join(opath,'pooled',groupnames[0]+addname[groupnames[0]]+"positions.ref_adjust.xls"),\
-                gainPositionFile=gainPositionFile,lossPositionFile=lossPositionFile,\
-                ofile=re.sub(':','-',os.path.join(opath,dfname+".positions.integrative.xls")),\
-                cwig=pooledgroups[groupnames[1]],twig=pooledgroups[groupnames[0]],dwig=dfgroups[dfname],\
-                dis=distance,rd=rd,test=test,fdrsimu=0,fdrRegions=peaks,occFDRlist=occFDRlist,fuzFDRlist=fuzFDRlist,fdr=fdr)
-                print 'time elapsed:', time()-starttime,'seconds'
-            if call_peak==1:
-                print '\npeak level integrative analysis for', dfname, '...'
-                print 'FDR simulation ...'
-                fdrlist=peakFDR(peakFile1=os.path.join(opath,'pooled',groupnames[1]+addname[groupnames[1]]+"refpeaks.xls"),\
-                            wg1=pooledgroups[groupnames[1]],wg2=pooledgroups[groupnames[0]],fdrsimu=fdrsimu,cut=height)
-                print 'analyzing ...'
-                region_differential(file1=os.path.join(opath,'pooled',groupnames[1]+addname[groupnames[1]]+"refpeaks.xls"),\
-                                    file2=os.path.join(opath,'pooled',groupnames[0]+addname[groupnames[0]]+"refpeaks.xls"),\
-                                    gainFile=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.refpeaks.xls")),\
-                                    lossFile=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.refpeaks.xls")),\
-                ofile=re.sub(':','-',os.path.join(opath,dfname+".peaks.integrative.xls")),widthFDRlist=fdrlist[0],\
-                smtFDRlist=fdrlist[1],aucFDRlist=fdrlist[2],step=step,fdr=fdr)
-                print 'time elapsed:', time()-starttime,'seconds'
-            if call_region==1:
-                print '\nregion level integrative analysis for', dfname, '...'
-                print 'FDR simulation ...'
-                fdrlist=peakFDR(peakFile1=os.path.join(opath,'pooled',groupnames[1]+addname[groupnames[1]]+"refregions.xls"),\
-                            wg1=pooledgroups[groupnames[1]],wg2=pooledgroups[groupnames[0]],fdrsimu=fdrsimu,cut=height)
-                print 'analyzing ...'
-                region_differential(file1=os.path.join(opath,'pooled',groupnames[1]+addname[groupnames[1]]+"refregions.xls"),\
-                                    file2=os.path.join(opath,'pooled',groupnames[0]+addname[groupnames[0]]+"refregions.xls"),\
-                                    gainFile=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.refregions.xls")),\
-                                    lossFile=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.refregions.xls")),\
-                ofile=re.sub(':','-',os.path.join(opath,dfname+".regions.integrative.xls")),widthFDRlist=fdrlist[0],\
-                smtFDRlist=fdrlist[1],aucFDRlist=fdrlist[2],step=step,fdr=fdr)
-                print 'time elapsed:', time()-starttime,'seconds'
-    ###### step 13 end --- map differential positions to nucleosome positions --- ######
-    
-    seconds=int(time()-starttime)
-    hours=seconds/3600
-    minutes=(seconds-hours*3600)/60
-    seconds=seconds-hours*3600-minutes*60
-    print '\ntotal time elapsed:',hours,'hours',minutes,'minutes',seconds,"seconds\n\njob done, cheers!\n\n"
+                if call_region==1:
+                    print '\nregion level integrative analysis for', dfname, '...'
+                    print 'FDR simulation ...'
+                    fdrlist=peakFDR(peakFile1=os.path.join(opath,'pooled',groupnames[1]+addname[groupnames[1]]+"refregions.xls"),\
+                                wg1=pooledgroups[groupnames[1]],wg2=pooledgroups[groupnames[0]],fdrsimu=fdrsimu,cut=height)
+                    print 'analyzing ...'
+                    region_differential(file1=os.path.join(opath,'pooled',groupnames[1]+addname[groupnames[1]]+"refregions.xls"),\
+                                        file2=os.path.join(opath,'pooled',groupnames[0]+addname[groupnames[0]]+"refregions.xls"),\
+                                        gainFile=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_gain.refregions.xls")),\
+                                        lossFile=re.sub(':','-',os.path.join(opath,'diff',dfname+testname[test]+"local_loss.refregions.xls")),\
+                    ofile=re.sub(':','-',os.path.join(opath,dfname+".regions.integrative.xls")),widthFDRlist=fdrlist[0],\
+                    smtFDRlist=fdrlist[1],aucFDRlist=fdrlist[2],step=step,fdr=fdr)
+                    print 'time elapsed:', time()-starttime,'seconds'
+        ###### step 13 end --- map differential positions to nucleosome positions --- ######
+
+        seconds=int(time()-starttime)
+        hours=seconds/3600
+        minutes=(seconds-hours*3600)/60
+        seconds=seconds-hours*3600-minutes*60
+        print '\ntotal time elapsed:',hours,'hours',minutes,'minutes',seconds,"seconds\n\njob done, cheers!\n\n"
 def pathParser(tpath):
     groups={}
     pairs=tpath.split(',')
