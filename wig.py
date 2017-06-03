@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import numpy,re
+import numpy,re, pandas as pd
 from copy import deepcopy
 from rpy2.robjects import r,FloatVector
 from math import log10,sqrt,log
@@ -292,8 +292,13 @@ class Wig:
         print 'whole genome aveage value is '+str(m)+', use cutoff',height
         #lines=open(file).readlines()
         outf=open(file,'w')
-        if calculate_P_value==1:outf.write('chr\tstart\tend\tcenter\twidth_above_cutoff\ttotal_signal\theight\theight_logP\n')
-        else:outf.write('chr\tstart\tend\tcenter\twidth_above_cutoff\ttotal_signal\theight\n')
+        if calculate_P_value==1:
+            outf.write('chr\tstart\tend\tcenter\twidth_above_cutoff\ttotal_signal\theight\theight_logP\n')
+            columns = ['chr', 'tstart', 'end', 'center', 'width_above_cutoff', 'total_signal', 'height', 'height_logP']
+        else:
+            outf.write('chr\tstart\tend\tcenter\twidth_above_cutoff\ttotal_signal\theight\n')
+            columns = ['chr', 'start', 'end', 'center', 'width_above_cutoff', 'total_signal', 'height']
+        results = []
         step=self.step
         dic=self.data
         total_width_above_cutoff=0
@@ -332,9 +337,16 @@ class Wig:
                 if calculate_P_value:
                     pvl=float(str(ppois(v,m)).split()[-1])/log(10)
                     outf.write(chr+'\t'+str(start)+'\t'+str(regions[chr][start])+'\t'+str((regions[chr][start]+start)/2)+'\t'+str(width_above_cutoff)+'\t'+str(auc)+'\t'+str(v)+'\t'+str(0-pvl)+"\n")
-                else:outf.write(chr+'\t'+str(start)+'\t'+str(regions[chr][start])+'\t'+str((regions[chr][start]+start)/2)+'\t'+str(width_above_cutoff)+'\t'+str(auc)+'\t'+str(v)+'\n')
+                    results.append([chr, str(start), str(regions[chr][start]), str((regions[chr][start]+start)/2), str(width_above_cutoff), str(auc), str(v), str(0-pvl)])
+                else:
+                    outf.write(chr+'\t'+str(start)+'\t'+str(regions[chr][start])+'\t'+str((regions[chr][start]+start)/2)+'\t'+str(width_above_cutoff)+'\t'+str(auc)+'\t'+str(v)+'\n')
+                    results.append([chr, str(start), str(regions[chr][start]), str((regions[chr][start]+start)/2), str(width_above_cutoff), str(auc), str(v)])
         print 'total_width_above_cutoff:',total_width_above_cutoff
         outf.close()
+
+        df = pd.DataFrame(results)
+        df.columns = columns
+        return df
         
     def callPositions(self,ofile,width=40,distance=165,edge=1,pcut=1e-5,height=0,fill_gap=False,fill_value=1,calculate_P_value=1,mode='w',title_line=1,poscal=0,regions=None,rd=None):
         '''
