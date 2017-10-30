@@ -717,6 +717,7 @@ def positionSelectorByGeneStructure(positionLines=[],selection=None,geneFile=Non
     if flank>chrbinsize:chrbinsize=flank
     gd={}
     n=0
+    print chrbinsize, 'chrbinsize is'
     for line in open(geneFile).readlines()[1:]:
         n+=1
         col=line.split()

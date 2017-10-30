@@ -277,7 +277,12 @@ def danpos(tpath=None,tbg=None,opath='./',\
             for groupname in pooledgroups:
                 print groupname
                 #temp_peaks=merge_peaks_by_head_tail_distance(peaks=peakgroups[groupname],distance=0)
-                df = pooledgroups[groupname].fillRegions(regions=peakgroups[groupname],file=os.path.join(opath,'pooled',groupname+addname[groupname]+"peaks_"+str(int(height))+".xls"),pheight=pheight,height=height,width=peak_width,calculate_P_value=1,pos_only=False)
+                if int(height) == height:
+                    out_height = int(height)
+                else:
+                    out_height = float(height)
+
+                df = pooledgroups[groupname].fillRegions(regions=peakgroups[groupname],file=os.path.join(opath,'pooled',groupname+addname[groupname]+"peaks_"+str(out_height)+".xls"),pheight=pheight,height=height,width=peak_width,calculate_P_value=1,pos_only=False)
                 result_dfs.append((df, height))
                 if len(pooledgroups)>1:pooledgroups[groupname].fillRegions(regions=peaks,file=os.path.join(opath,'pooled',groupname+addname[groupname]+"refpeaks.xls"),pheight=pheight,height=height,width=peak_width,calculate_P_value=1,pos_only=False)
             if len(dfgroups)>0:
@@ -323,7 +328,7 @@ def danpos(tpath=None,tbg=None,opath='./',\
             print '\nretriving region values for each group ...'
             for groupname in pooledgroups:
                 print groupname
-                df = pooledgroups[groupname].fillRegions(regions=regiongroups[groupname],file=os.path.join(opath,'pooled',groupname+addname[groupname]+"regions_"+str(int(height))+".xls"),pheight=epheight,height=eheight,width=region_width,calculate_P_value=1,pos_only=False)
+                df = pooledgroups[groupname].fillRegions(regions=regiongroups[groupname],file=os.path.join(opath,'pooled',groupname+addname[groupname]+"regions_"+str(height)+".xls"),pheight=epheight,height=eheight,width=region_width,calculate_P_value=1,pos_only=False)
                 result_dfs.append((df, height))
                 if ref_region!=None or len(pooledgroups)>1:pooledgroups[groupname].fillRegions(regions=regions,file=os.path.join(opath,'pooled',groupname+addname[groupname]+"refregions.xls"),pheight=epheight,height=eheight,width=region_width,calculate_P_value=1,pos_only=False)
             if len(dfgroups)>0:

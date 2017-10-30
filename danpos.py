@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 #2.2.2  version
 
-import os,sys
+import os, sys, pandas as pd, argparse, sys, os
 from time import time
 from functions import danpos
 from math import log10
 from copy import deepcopy
 from wig import Wig
 from wigs import Wigs
-import argparse,sys,os
 from lib import retrieveDNA,overlap,positionSelectorByGreatTSS,positionDicMinMax,vioplot,positionDistance,positionSelectorByValue,positionSelectorByGeneStructure,batchOccAroundPoints,batchOccInRegions,occAroundPoints,plot,batchOccPSD,retrieve_positions_by_value,batchPositionDistanceDistribution,batchPositionValDistribution
 from wiq import rawsort,refquantile,changevalue,qnorwig,wiq,wig2wiq
 from rpy2.robjects import r
+from grid import grid
+from collections import defaultdict
 
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0) # This allow DANPOS to print each message on screen immediately.
 
@@ -1475,6 +1476,145 @@ def runretrieveDNA(command='overlap'):
     
     retrieveDNA(file=args.file,gfile=args.genome_file,ofile=args.out_file)
 
+def runGrid():
+    """
+    Description:
+            This function parses input parameters, calls and passes all parameters values to the function grid to perform danpos parameter optimization.
+    parameters:
+            none
+    :return:
+    """
+    if (len(sys.argv) < 10) and ('-h' not in sys.argv) and ('--help' not in sys.argv):
+        # at least one parameter need to be specified, will print help message if no parameter is specified
+        print "\nusage:\n\npython danpos.py grid [optional arguments] <target_table1> <target_table2> <danpos_result_path> <features> <output_prefix> <output_path> <upstream_grid> <down_stream_grid> <height_grid> <GTF>\n\nfor more help, please try: python danpos.py grid -h\n"
+        return 1
+
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+                                     usage="\n\npython danpos.py grid [optional arguments] <target_table1> <target_table2> <danpos_result_path> <features> <output_prefix> <output_path>\n\n",
+                                     description='', epilog="Chen lab, Houston Methodist")
+    parser.add_argument('command', default=None, help="set as 'grid' to perform parameter optimization")
+
+    parser.add_argument('target_table1', default=None,
+                        help="The first table of genes, containing the columns at least 'gene', 'sample_prefix', table delimiter is recognized by the file surfix (csv, tsv, txt, xls, xlsx)", )
+    parser.add_argument('target_table2', default=None,
+                        help="The second table of genes, containing the columns at least 'gene', 'sample_prefix', table delimiter is recognized by the file surfix (csv, tsv, txt, xls, xlsx)")
+    parser.add_argument('danpos_result_path', default=None,
+                        help="folder containing the danpos peak calling result tables, make sure the tables startswith sample_prefix and with '_' as delimiter in the name")
+    parser.add_argument('features', default=None,
+                        help="the feature need to be optimized such as 'total_width', 'height'...")
+    parser.add_argument('output_prefix', default=None,
+                        help="the prefix for output files")
+    parser.add_argument('output_path', default=None,
+                        help="the output path")
+    parser.add_argument('up_stream_grid', default=None,
+                        help="the optimization grid for upstream distance, in the format:'-1000000:0:10000:2:1000', meaning, range is from -1M to 0, the start grid is 10000, every iteration the grid shrink for 2 times, and the final grid need to be larger than 1000")
+    parser.add_argument('down_stream_grid', default=None,
+                        help="the optimization grid for downstream distance, in the format:'0:1000000:10000:2:1000', meaning, range is from 0 to 1M, the start grid is 10000, every iteration the grid shrink for 2 times, and the final grid need to be larger than 1000")
+    parser.add_argument('height_grid', default=None,
+                        help="the optimization grid for height, in the format:'1:100:10:2:1', meaning, range is from 1 to 100, the start grid is 10, every iteration the grid shrink for 2 times, and the final grid need to be larger than 1")
+    parser.add_argument('gtf', default=None,
+                        help="the file path of gene gtf following the format of UCSC genome browser")
+
+    ## optional parameters
+    parser.add_argument('-f', dest='function', metavar='', default='wilcoxon',
+                        help="wilcoxon or fisher")
+    parser.add_argument('--TSS_pos', dest='TSS_pos', metavar='', default='TSS',
+                       help="TSS or TTS")
+    parser.add_argument('--TTS_pos', dest='TTS_pos', metavar='', default='TSS',
+                        help="TSS or TTS")
+    parser.add_argument('-p', dest='process', metavar='', default=8,
+                        help="number of process")
+    parser.add_argument('-gtf_index', dest='gtf_index', metavar='', default=0,
+                        help="the column index for official gene symbol in GTF file, default is 0 (first column)")
+
+    args = None
+    if '-h' in sys.argv or '--help' in sys.argv:  # print help information once required by user
+        print '\n'
+        parser.print_help()
+        print '\n'
+        return 0
+
+    elif len(sys.argv) >= 10:  # at least two parameter need to be specified
+        try:
+            args = parser.parse_args()  # all paramter values are now saved in args
+        except:
+            print "\nfor more help, please try: python danpos grid -h\n"
+            return 0
+    else:
+        print "\nfor help, please try: python danpos grid -h\n"
+        return 0
+    print ''
+
+    if args is not None:
+        up_stream_distance_range_start, up_stream_distance_range_end, up_stream_distance_range_step, \
+        up_stream_distance_grid, up_stream_distance_step, up_stream_distance_limit = [int(x) for x in args.up_stream_grid.split(':')]
+        up_stream_range = range(up_stream_distance_range_start, up_stream_distance_range_end, up_stream_distance_range_step)
+
+        down_stream_distance_range_start, down_stream_distance_range_end, down_stream_distance_range_step, \
+        down_stream_distance_grid, down_stream_distance_step, down_stream_distance_limit = [int(x) for x in args.down_stream_grid.split(':')]
+        down_stream_range = range(down_stream_distance_range_start, down_stream_distance_range_end, down_stream_distance_range_step)
+
+        height_range_start, height_range_end, height_range_step, \
+        height_grid, height_step, height_limit = [int(x) for x in args.height_grid.split(':')]
+        height_range = range(height_range_start, height_range_end,
+                                           height_range_step)
+
+        target_table1 = args.target_table1
+        if target_table1.endswith('.txt') or target_table1.endswith('.xls') or target_table1.endswith('.tsv'):
+            target_table1 = pd.read_csv(target_table1, sep='\t')
+        elif target_table1.endswith('.csv'):
+            target_table1 = pd.read_csv(target_table1)
+        elif target_table1.endswith('.xlsx'):
+            target_table1 = pd.read_excel(target_table1)
+        target_table1['gene'] = target_table1['gene'].str.upper()
+
+        target_table2 = args.target_table2
+        if target_table2.endswith('.txt') or target_table2.endswith('.xls') or target_table2.endswith('.tsv'):
+            target_table2 = pd.read_csv(target_table2, sep='\t')
+        elif target_table2.endswith('.csv'):
+            target_table2 = pd.read_csv(target_table2)
+        elif target_table2.endswith('.xlsx'):
+            target_table2 = pd.read_excel(target_table2)
+        target_table2['gene'] = target_table2['gene'].str.upper()
+
+        danpos_result_path = args.danpos_result_path if args.danpos_result_path.endswith('/') else args.danpos_result_path+'/'
+        dfs = [x for x in danpos_result_path if x.endswith('.xls')]
+        all_dfs = defaultdict(dict)
+        for table_name in dfs:
+            name_info = table_name.split('_')
+            cutoff = float(name_info[-1][:-4])
+            for info in name_info:
+                if info in target_table1['sample_prefix'].unique() or info in target_table2['sample_prefix'].unique():
+                    all_dfs[info][cutoff] = danpos_result_path + table_name
+                    break
+
+        feature = args.features
+
+        output_prefix = args.output_prefix
+        output_path = args.output_path
+        gtf = pd.read_csv(args.gtf, sep='\t')
+        gtf_index = int(args.gtf_index)
+        gtf[gtf.columns[gtf_index]] = gtf[gtf.columns[gtf_index]].str.upper()
+
+        function = args.function
+        TSS_pos = args.TSS_pos
+        TTS_pos = args.TTS_pos
+        process = args.process
+
+        grid(target_table1, target_table2,
+             gtf, all_dfs, feature, function,
+             up_stream_range, up_stream_distance_grid, up_stream_distance_range_step, up_stream_distance_step, up_stream_distance_limit,
+             down_stream_range, down_stream_distance_grid, down_stream_distance_range_step, down_stream_distance_step, down_stream_distance_limit,
+             height_range, height_grid, height_range_step, height_step, height_limit,
+             TSS_pos, TTS_pos,
+             output_prefix, output_path,
+             process=process)
+        return
+    return 1
+
+
+
+
 
 if __name__ == "__main__":
     if len(sys.argv)>1:
@@ -1490,9 +1630,10 @@ if __name__ == "__main__":
         elif sys.argv[1]=='valuesAtRanks':retrievePositionValuesAtRanks()
         elif sys.argv[1]=='wiq':wiq()
         elif sys.argv[1]=='wig2wiq':wig2wiq()
+        elif sys.argv[1]=='grid':runGrid()
         else:printHelp()
     else:
-        print '\ndanpos version 2.2.2'
+        print '\ndanpos version 3.1 alpha'
         print 'For a list of functions in danpos, please try:\npython danpos.py -h'
         print ''
 
