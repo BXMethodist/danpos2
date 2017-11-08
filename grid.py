@@ -84,7 +84,7 @@ def get_stats(gene_df, df_path, criteria, bin=3000, df_function=df_to_index_danp
         #     print gene, cur_ranges
         gene_name = gene_df.iloc[k, 0]
 
-        chr_name, start, end = gene_df.iloc[k, 1], gene_df.iloc[k, 2], gene_df.iloc[k, 3]
+        chr_name, start, end, length = gene_df.iloc[k, 1], gene_df.iloc[k, 2], gene_df.iloc[k, 3], gene_df.iloc[k, 4]
         ## Here is the problem, danpos selector will consider the entire overlapped peaks
         ## The other approach is using self designed peak calling, to make sure each parameter will return different value
         cur_table = set()
@@ -151,6 +151,8 @@ def get_stats(gene_df, df_path, criteria, bin=3000, df_function=df_to_index_danp
             cur_value = cur_df['total_signal'].sum()
         elif criteria == 'single_signal':
             cur_value = cur_df['total_signal'].max()
+        elif criteria == 'coverage':
+            cur_value = (cur_df['end'] - cur_df['start']).sum()*1.0/length
         #
         # # This is for kurtosis and skewness
         elif cur_df.shape[0] > 0 and criteria == 'skewness' and 'skewness' in cur_df.columns:
@@ -380,10 +382,13 @@ def get_range_absolute(gene_list, all_gene_GTF, left_distance, right_distance, T
         negative_df['left_range'] = negative_df['MID'] - right_distance
         negative_df[negative_df['left_range'] < 0] = 0
 
+    positive_df['length'] = positive_df['hg19.knownGene.txEnd'] - positive_df['hg19.knownGene.txStart']
+    negative_df['length'] = negative_df['hg19.knownGene.txEnd'] - negative_df['hg19.knownGene.txStart']
+
     new_df = positive_df.append(negative_df)
     # print new_df.columns
-    result_df = new_df[['hg19.kgXref.geneSymbol', 'hg19.knownGene.chrom', 'left_range', 'right_range']]
-    result_df.columns = ['gene', 'chr', 'left_range', 'right_range']
+    result_df = new_df[['hg19.kgXref.geneSymbol', 'hg19.knownGene.chrom', 'left_range', 'right_range', 'length']]
+    result_df.columns = ['gene', 'chr', 'left_range', 'right_range', 'length']
 
     return result_df
 
@@ -470,7 +475,7 @@ def grid_search(CIG_gene_df, non_CIG_gene_df,
                 up_stream_distance_range_step=1000, window_size_range_step=1000, cutoff_range_step=1,
                 up_stream_distance_step=2, window_size_step=2, cutoff_step=2,
                 up_stream_distance_limit=1000, window_size_limit=1000, cutoff_limit=1,
-                process=8, wigs=None):
+                process=8, wigs=None, fisher_c=500):
 
     ## track the parameters and logP path
     path = []
@@ -555,7 +560,7 @@ def grid_search(CIG_gene_df, non_CIG_gene_df,
             p = Process(target=CIG_process,
                         args=(queue, cur_chunk, CIG_gene_df, non_CIG_gene_df, all_gene_GTF,
                               all_dfs, criteria, cur_past_path, cost_function, marker, TSS_pos, TTS_pos,
-                              wigs))
+                              wigs, fisher_c))
             processes.append(p)
             p.start()
 
@@ -618,7 +623,7 @@ def grid_search(CIG_gene_df, non_CIG_gene_df,
 
 def CIG_process(queue, combinations, CIG_gene_df, non_CIG_gene_df, all_gene_GTF,
                 all_dfs, criteria, cur_past_path, cost_function, marker, TSS_pos, TTS_pos,
-                wigs):
+                wigs, fisher_c):
     path = []
     best_log_P = None
     best_comb = None
@@ -633,7 +638,7 @@ def CIG_process(queue, combinations, CIG_gene_df, non_CIG_gene_df, all_gene_GTF,
             cur_logP = cost_function(CIG_gene_df, non_CIG_gene_df, all_gene_GTF,
                                      cur_up_stream_distance, cur_window_size,
                                      all_dfs, cur_cutoff, criteria, marker, TSS_pos, TTS_pos,
-                                     wigs)
+                                     wigs, fisher_c)
         print comb, cur_logP
         path.append((comb, cur_logP))
         if (best_log_P is None or best_log_P > cur_logP) and cur_logP is not None:
@@ -655,10 +660,10 @@ def logP_wilcoxon(groupA, groupB, bags=1):
     p_values = []
 
     for i in range(bags):
-        # cur_groupA = np.random.choice(groupA, int(len(groupA)*0.75), replace=True)
-        # cur_groupB = np.random.choice(groupB, int(len(groupB)*0.75), replace=True)
-        cur_groupA = groupA
-        cur_groupB = groupB
+        cur_groupA = np.random.choice(groupA, int(len(groupA)*0.75), replace=True)
+        cur_groupB = np.random.choice(groupB, int(len(groupB)*0.75), replace=True)
+        # cur_groupA = groupA
+        # cur_groupB = groupB
         try:
             rank_diff, p = stats.mannwhitneyu(cur_groupA, cur_groupB, alternative='less')
             # print p
@@ -670,8 +675,10 @@ def logP_wilcoxon(groupA, groupB, bags=1):
             p_values.append(np.log10(p))
         except:
             p_values.append(0)
-
-    return np.mean(p_values)
+    final_p = np.mean(p_values)
+    if final_p > 0.5:
+        return 1-final_p
+    return final_p
 
 def logP_fisher(gene_df, all_stat_df, criteria, top_enrich=500, ascending=False):
     total_genes = all_stat_df.shape[0]
@@ -687,7 +694,7 @@ def logP_fisher(gene_df, all_stat_df, criteria, top_enrich=500, ascending=False)
 def wilcoxon_cost_function(CIG_gene_df, non_CIG_gene_df, all_gene_GTF,
                           cur_up_stream_distance, cur_down_stream_distance,
                           all_dfs, cur_cutoff, criteria, marker,
-                          TSS_pos, TTS_pos, wigs):
+                          TSS_pos, TTS_pos, wigs, top_enrich):
     cur_CIG_results_df, cur_non_CIG_results_df = CIG_selecter(CIG_gene_df, non_CIG_gene_df, all_gene_GTF,
                                                               cur_up_stream_distance, cur_down_stream_distance,
                                                               all_dfs, cur_cutoff, criteria,
@@ -697,7 +704,7 @@ def wilcoxon_cost_function(CIG_gene_df, non_CIG_gene_df, all_gene_GTF,
     # print 'wilcoxon'
     print cur_CIG_results_df[criteria].mean(),  cur_non_CIG_results_df[criteria].mean(), 'average'
 
-    if cur_CIG_results_df[criteria].mean() < cur_non_CIG_results_df[criteria].mean():
+    if cur_CIG_results_df[criteria].median() < cur_non_CIG_results_df[criteria].median():
         cur_logP = logP_wilcoxon(cur_CIG_results_df[criteria],
                                  cur_non_CIG_results_df[criteria])
     else:
@@ -709,87 +716,81 @@ def wilcoxon_cost_function(CIG_gene_df, non_CIG_gene_df, all_gene_GTF,
 def fisher_cost_function(CIG_gene_df, non_CIG_gene_df, all_gene_GTF,
                          cur_up_stream_distance, cur_down_stream_distance,
                          all_dfs, cur_cutoff, criteria, marker,
-                         TSS_pos, TTS_pos, wigs):
+                         TSS_pos, TTS_pos, wigs, top_enrich):
     all_gene_results_df = CIG_selecter_all(CIG_gene_df, all_gene_GTF, cur_up_stream_distance, cur_down_stream_distance,
                                            all_dfs, cur_cutoff, criteria,
                                            TSS_pos, TTS_pos, wigs)
     # print 'fisher'
-    cur_logP = logP_fisher(CIG_gene_df, all_gene_results_df, criteria, top_enrich=500)
+    cur_logP = logP_fisher(CIG_gene_df, all_gene_results_df, criteria, top_enrich=top_enrich)
 
     return cur_logP
 
-def reformat(directory='./csv/'):
-    paths = [x for x in os.listdir(directory) if x.find('change') == -1 and x.endswith('.csv')]
-    for path in paths:
-        results = []
-        print path
-        df = pd.read_csv(directory+ path, index_col=0)
+def reformat(df):
+    results = []
+    df.columns = ['p','logP']
 
-        print df
+    for i in range(df.shape[0]):
+       info = df.ix[i, 'p']
+       info = info.replace('[', '')
+       info = info.replace(']', '')
+       cur_result = info.split() + [df.ix[i, 'logP']]
+       results.append(cur_result)
 
-        df.columns = ['p','logP']
-
-        for i in range(df.shape[0]):
-           info = df.ix[i, 'p']
-           info = info.replace('[', '')
-           info = info.replace(']', '')
-           cur_result = info.split() + [df.ix[i, 'logP']]
-           results.append(cur_result)
-
-        df = pd.DataFrame(results)
-        df.columns = ['upstream', 'downstream', 'height', 'logP']
-        # df = df[df['logP'] > -82]
-        df.to_csv(directory+path, index=None)
+    df = pd.DataFrame(results)
+    df.columns = ['upstream', 'downstream', 'height', 'logP']
+    return df
 
 def get_best(directory='./csv/'):
-    parameters = {'upstream': range(-1000000, 1000000, 1000), 'downstream': range(-1000000, 1000000, 1000), 'height': [0,0.25, 0.5,0.75, 1.0,0.1,0.2,0.3,0.4,0.6,0.7,0.8,0.9, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0 ,4.5, 5.0] + range(5, 301)}
+    parameters = {'upstream': range(-1000000, 1000000, 1000), 'downstream': range(-1000000, 1000000, 1000), 'height': [0,0.25, 0.5,0.75, 1.0,0.1,0.2,0.3,0.4,0.6,0.7,0.8,0.9, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0 ,4.5, 5.0] + range(5, 41)}
     # parameters = {'upstream': range(-1000000, 1000000, 1000), 'downstream': range(-1000000, 1000000, 1000),
     #               'height': range(5, 301)}
-    markers = ['h3k4me1', 'h3k27ac', 'h3k4me3', 'h3k27me3']
-    # markers = ['h3k4me1', 'h3k4me3', 'h3k27ac']
-    # markers = ['h3k27me3']
+    markers = ['h3k4me1_qn', 'h3k27ac_qn', 'h3k4me3_qn', 'h3k27me3_qn']
+    genebodies = ['TSS', 'TTS']
     features = ['total_width', 'height', 'total_signal', 'kurtosis', 'skewness']
 #['total_width', 'single_width',  'total_signal', 'kurtosis', 'skewness', 'single_signal',]
-    for marker in markers:
-        for feature in features:
-            for parameter in parameters.keys():
-                results = []
-                df = pd.read_csv(directory + 'grid_path_'+marker+'_'+feature+'.csv')
-                for p in parameters[parameter]:
-                    cur_df = df[df[parameter] == p]
-                    for other_parameter in parameters.keys():
-                        if other_parameter != parameter:
-                            # print parameters[other_parameter]
-                            cur_df = cur_df[cur_df[other_parameter].isin(parameters[other_parameter])]
-                    if cur_df.shape[0] == 0:
+    for genebody in genebodies:
+        for marker in markers:
+            for feature in features:
+                for parameter in parameters.keys():
+                    results = []
+                    if os.path.exists(directory + marker+'_'+genebody+'_gridpath_' + feature+'.csv'):
+                        df = pd.read_csv(directory + marker+'_'+genebody+'_gridpath_' + feature+'.csv')
+                    else:
                         continue
-                    results.append((p, cur_df['logP'].min()*-1))
-                df = pd.DataFrame(results)
-                df.columns = [parameter, 'best_logP']
-                df.to_csv(directory+marker+'_'+feature+'_'+parameter+'.csv', index=None)
+                    for p in parameters[parameter]:
+                        cur_df = df[df[parameter] == p]
+                        for other_parameter in parameters.keys():
+                            if other_parameter != parameter:
+                                # print parameters[other_parameter]
+                                cur_df = cur_df[cur_df[other_parameter].isin(parameters[other_parameter])]
+                        if cur_df.shape[0] == 0:
+                            continue
+                        results.append((p, cur_df['logP'].min()*-1))
+                    df = pd.DataFrame(results)
+                    df.columns = [parameter, 'best_logP']
+                    df.to_csv(directory+marker+'_'+genebody+'_'+feature+'_'+parameter+'.csv', index=None)
 
-def get_best_parameter(directory='./csv/'):
+def get_best_parameter(directory='./csv/', output_path='./', marker_index=0, feature_index=-2, genebody_index=2):
+    output_path += '/' if not output_path.endswith('/') else ''
     results = {}
-    paths = [x for x in os.listdir(directory) if x.find('change') == -1 and x.endswith('.csv')]
+    paths = [x for x in os.listdir(directory) if x.find('gridpath') != -1 and x.endswith('.csv')]
     for path in paths:
         df = pd.read_csv(directory+path)
-        marker = path.split('_')[2]
+        marker = path.split('_')[marker_index]
         info = path[:-4].split('_')
-        feature = '_'.join(info[3:])
+        feature = '_'.join(info[feature_index:]).replace('gridpath_', '')
+        genebody = info[genebody_index]
         best_p = df['logP'].min()
-        cur_df = df[df['logP'] == best_p]
-        if (marker, feature) in results:
-            if best_p < results[(marker, feature)][-1]:
-                results[(marker, feature)] = [tuple(x) for x in cur_df.to_records(index=False)][0]
-        else:
-            results[(marker, feature)] = [tuple(x) for x in cur_df.to_records(index=False)][0]
+        cur_df = df[df['logP'] == best_p].drop_duplicates()
+        results[(marker, feature, genebody)] = tuple(cur_df.to_records(index=False)[0])
+        # print results[(marker, feature, genebody)]
     final = []
     for key, value in results.items():
-        final.append([key[0], key[1]] + list(results[key]))
+        final.append([key[0], key[1], key[2]] + list(results[key]))
 
     final_df = pd.DataFrame(final)
-    final_df.columns = ['marker', 'feature', 'upstream', 'downstream', 'height', 'logP']
-    final_df.to_csv('best_parameters_CIG.csv', index=None)
+    final_df.columns = ['marker', 'feature', 'genebody', 'upstream', 'downstream', 'height', 'logP', ]
+    final_df.to_csv(output_path+'best_parameters_CIG.csv', index=None)
 
 def generate_plot(df_path, marker, verbose=True):
     df = pd.read_excel(df_path)
@@ -896,10 +897,10 @@ def grid(target_table1, target_table2,
          up_stream_range, up_stream_grid, up_stream_distance_range_step, up_stream_grid_step, up_stream_grid_limit,
          down_stream_range, down_stream_grid, down_stream_distance_range_step, down_stream_grid_step, down_stream_grid_limit,
          height_range, height_grid, height_range_step, height_grid_step, height_grid_limit,
-         TSS_pos, TTS_pos, output_prefix, output_path,
-         process=8):
+         TSS_pos, TTS_pos,
+         process=8, fisher_c=500):
     if cost_function == 'fisher':
-        grid_search(target_table1, target_table2,
+        return grid_search(target_table1, target_table2,
                     GTF, all_dfs,  criteria=feature, marker='', cost_function=fisher_cost_function,
                     TSS_pos=TSS_pos, TTS_pos=TTS_pos,
                     up_stream_distance_range=up_stream_range, window_size_range=down_stream_range, cutoff_range=height_range,
@@ -907,9 +908,9 @@ def grid(target_table1, target_table2,
                     up_stream_distance_range_step=up_stream_distance_range_step, window_size_range_step=down_stream_distance_range_step, cutoff_range_step=height_range_step,
                     up_stream_distance_step=up_stream_grid_step, window_size_step=down_stream_grid_step, cutoff_step=height_grid_step,
                     up_stream_distance_limit=up_stream_grid_limit, window_size_limit=down_stream_grid_limit, cutoff_limit=height_grid_limit,
-                    process=process)
+                    process=process, fisher_c=fisher_c)
     elif cost_function == 'wilcoxon':
-        grid_search(target_table1, target_table2,
+        return grid_search(target_table1, target_table2,
                     GTF, all_dfs, criteria=feature, marker='', cost_function=wilcoxon_cost_function,
                     TSS_pos=TSS_pos, TTS_pos=TTS_pos,
                     up_stream_distance_range=up_stream_range, window_size_range=down_stream_range,
@@ -921,4 +922,9 @@ def grid(target_table1, target_table2,
                     cutoff_step=height_grid_step,
                     up_stream_distance_limit=up_stream_grid_limit, window_size_limit=down_stream_grid_limit,
                     cutoff_limit=height_grid_limit,
-                    process=process)
+                    process=process, fisher_c=fisher_c)
+
+if __name__ == "__main__":
+    # get_best_parameter(directory='/Users/boxia/PycharmProjects/CIG_logistic_regression/Fig2&Sup/', output_path='/Users/boxia/PycharmProjects/CIG_logistic_regression/Fig2&Sup/')
+    get_best(directory='/Users/boxia/PycharmProjects/CIG_logistic_regression/Fig2&Sup/')
+    pass

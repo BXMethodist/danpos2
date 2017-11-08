@@ -1490,7 +1490,7 @@ def runGrid():
         return 1
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-                                     usage="\n\npython danpos.py grid [optional arguments] <target_table1> <target_table2> <danpos_result_path> <features> <output_prefix> <output_path>\n\n",
+                                     usage="\n\npython danpos.py grid [optional arguments] <target_table1> <target_table2> <danpos_result_path> <features> <output_prefix> <output_path> <upstream_grid> <down_stream_grid> <height_grid> <GTF>\n\n",
                                      description='', epilog="Chen lab, Houston Methodist")
     parser.add_argument('command', default=None, help="set as 'grid' to perform parameter optimization")
 
@@ -1506,26 +1506,33 @@ def runGrid():
                         help="the prefix for output files")
     parser.add_argument('output_path', default=None,
                         help="the output path")
-    parser.add_argument('up_stream_grid', default=None,
-                        help="the optimization grid for upstream distance, in the format:'-1000000:0:10000:2:1000', meaning, range is from -1M to 0, the start grid is 10000, every iteration the grid shrink for 2 times, and the final grid need to be larger than 1000")
-    parser.add_argument('down_stream_grid', default=None,
-                        help="the optimization grid for downstream distance, in the format:'0:1000000:10000:2:1000', meaning, range is from 0 to 1M, the start grid is 10000, every iteration the grid shrink for 2 times, and the final grid need to be larger than 1000")
-    parser.add_argument('height_grid', default=None,
-                        help="the optimization grid for height, in the format:'1:100:10:2:1', meaning, range is from 1 to 100, the start grid is 10, every iteration the grid shrink for 2 times, and the final grid need to be larger than 1")
     parser.add_argument('gtf', default=None,
                         help="the file path of gene gtf following the format of UCSC genome browser")
 
     ## optional parameters
     parser.add_argument('-f', dest='function', metavar='', default='wilcoxon',
                         help="wilcoxon or fisher")
+    parser.add_argument('-c', dest='fisher_cutoff', metavar='', default=500,
+                        help="number of genes fisher enrichment test will be used")
+    parser.add_argument('-n', dest='gene_column_name', metavar='', default='gene',
+                        help="the column name for gene official symbol in target tables")
+    parser.add_argument('-t', dest='sample_column_name', metavar='', default='sample_prefix',
+                        help="the column name for sample prefix in target tables")
     parser.add_argument('--TSS_pos', dest='TSS_pos', metavar='', default='TSS',
                        help="TSS or TTS")
     parser.add_argument('--TTS_pos', dest='TTS_pos', metavar='', default='TSS',
                         help="TSS or TTS")
-    parser.add_argument('-p', dest='process', metavar='', default=8,
+    parser.add_argument('-p', '--process', dest='process', metavar='', default=8,
                         help="number of process")
-    parser.add_argument('-gtf_index', dest='gtf_index', metavar='', default=0,
+    parser.add_argument('-g', '--gtf_index', dest='gtf_index', metavar='', default=0,
                         help="the column index for official gene symbol in GTF file, default is 0 (first column)")
+    parser.add_argument('--up_stream_grid', dest='up_stream_grid', default=None,
+                        help="the optimization grid for upstream distance, in the format:'start:-1000000:0:1000:10000:2:1000', meaning, range is from -1M to 0 with step 1000, the start grid is 10000, every iteration the grid shrink for 2 times, and the final grid need to be larger than 1000")
+    parser.add_argument('--down_stream_grid', dest='down_stream_grid', default=None,
+                        help="the optimization grid for downstream distance, in the format:'end:0:1000000:1000:10000:2:1000', meaning, range is from 0 to 1M with step 1000, the start grid is 10000, every iteration the grid shrink for 2 times, and the final grid need to be larger than 1000")
+    parser.add_argument('--height_grid', dest='height_grid', default=None,
+                        help="the optimization grid for height, in the format:'height:1:100:1:10:2:1', meaning, range is from 1 to 100 with step 1, the start grid is 10, every iteration the grid shrink for 2 times, and the final grid need to be larger than 1")
+
 
     args = None
     if '-h' in sys.argv or '--help' in sys.argv:  # print help information once required by user
@@ -1535,27 +1542,28 @@ def runGrid():
         return 0
 
     elif len(sys.argv) >= 10:  # at least two parameter need to be specified
-        try:
-            args = parser.parse_args()  # all paramter values are now saved in args
-        except:
-            print "\nfor more help, please try: python danpos grid -h\n"
-            return 0
+        # try:
+        args = parser.parse_args()  # all paramter values are now saved in args
+        # except:
+        #     print "arg parse failed\n"
+        #     print "\nfor more help, please try: python danpos grid -h\n"
+        #     return 0
     else:
-        print "\nfor help, please try: python danpos grid -h\n"
+        print "\nfor help, please try: python danpos.py grid -h\n"
         return 0
     print ''
 
     if args is not None:
         up_stream_distance_range_start, up_stream_distance_range_end, up_stream_distance_range_step, \
-        up_stream_distance_grid, up_stream_distance_step, up_stream_distance_limit = [int(x) for x in args.up_stream_grid.split(':')]
+        up_stream_distance_grid, up_stream_distance_step, up_stream_distance_limit = [int(x) for x in args.up_stream_grid.split(':')[1:]]
         up_stream_range = range(up_stream_distance_range_start, up_stream_distance_range_end, up_stream_distance_range_step)
 
         down_stream_distance_range_start, down_stream_distance_range_end, down_stream_distance_range_step, \
-        down_stream_distance_grid, down_stream_distance_step, down_stream_distance_limit = [int(x) for x in args.down_stream_grid.split(':')]
+        down_stream_distance_grid, down_stream_distance_step, down_stream_distance_limit = [int(x) for x in args.down_stream_grid.split(':')[1:]]
         down_stream_range = range(down_stream_distance_range_start, down_stream_distance_range_end, down_stream_distance_range_step)
 
         height_range_start, height_range_end, height_range_step, \
-        height_grid, height_step, height_limit = [int(x) for x in args.height_grid.split(':')]
+        height_grid, height_step, height_limit = [int(x) for x in args.height_grid.split(':')[1:]]
         height_range = range(height_range_start, height_range_end,
                                            height_range_step)
 
@@ -1566,7 +1574,7 @@ def runGrid():
             target_table1 = pd.read_csv(target_table1)
         elif target_table1.endswith('.xlsx'):
             target_table1 = pd.read_excel(target_table1)
-        target_table1['gene'] = target_table1['gene'].str.upper()
+        target_table1[args.gene_column_name] = target_table1[args.gene_column_name].str.upper()
 
         target_table2 = args.target_table2
         if target_table2.endswith('.txt') or target_table2.endswith('.xls') or target_table2.endswith('.tsv'):
@@ -1575,23 +1583,33 @@ def runGrid():
             target_table2 = pd.read_csv(target_table2)
         elif target_table2.endswith('.xlsx'):
             target_table2 = pd.read_excel(target_table2)
-        target_table2['gene'] = target_table2['gene'].str.upper()
+        target_table2[args.gene_column_name] = target_table2[args.gene_column_name].str.upper()
 
         danpos_result_path = args.danpos_result_path if args.danpos_result_path.endswith('/') else args.danpos_result_path+'/'
-        dfs = [x for x in danpos_result_path if x.endswith('.xls')]
+        if args.features =='skewness' or args.features =='kurtosis':
+            dfs = [x for x in os.listdir(danpos_result_path) if x.endswith('.csv')]
+        else:
+            dfs = [x for x in os.listdir(danpos_result_path) if x.endswith('.xls')]
+
         all_dfs = defaultdict(dict)
+        # print dfs
         for table_name in dfs:
             name_info = table_name.split('_')
+            # print name_info
+            # print target_table1[args.sample_column_name].unique()
             cutoff = float(name_info[-1][:-4])
             for info in name_info:
-                if info in target_table1['sample_prefix'].unique() or info in target_table2['sample_prefix'].unique():
+                if info in target_table1[args.sample_column_name].unique() or info in target_table2[args.sample_column_name].unique():
                     all_dfs[info][cutoff] = danpos_result_path + table_name
                     break
 
+        # print all_dfs
+        # return
         feature = args.features
+        fisher_c = args.fisher_cutoff
 
         output_prefix = args.output_prefix
-        output_path = args.output_path
+        output_path = args.output_path if args.output_path.endswith('/') else args.output_path+'/'
         gtf = pd.read_csv(args.gtf, sep='\t')
         gtf_index = int(args.gtf_index)
         gtf[gtf.columns[gtf_index]] = gtf[gtf.columns[gtf_index]].str.upper()
@@ -1601,14 +1619,26 @@ def runGrid():
         TTS_pos = args.TTS_pos
         process = args.process
 
-        grid(target_table1, target_table2,
+        path = grid(target_table1, target_table2,
              gtf, all_dfs, feature, function,
              up_stream_range, up_stream_distance_grid, up_stream_distance_range_step, up_stream_distance_step, up_stream_distance_limit,
              down_stream_range, down_stream_distance_grid, down_stream_distance_range_step, down_stream_distance_step, down_stream_distance_limit,
              height_range, height_grid, height_range_step, height_step, height_limit,
              TSS_pos, TTS_pos,
-             output_prefix, output_path,
-             process=process)
+             process=process, fisher_c=fisher_c)
+
+        results = []
+
+        for p in path:
+            comb, logp = p
+            cur_result = list(comb) + [logp]
+            results.append(cur_result)
+
+        df = pd.DataFrame(results)
+        df.columns = ['upstream', 'downstream', 'height', 'logP']
+
+        df.to_csv(output_path + output_prefix + '_gridpath_' + feature + '.csv', index=False)
+
         return
     return 1
 

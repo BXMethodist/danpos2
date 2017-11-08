@@ -43,9 +43,12 @@ def refquantile(paths,ofile,gfile):
         v=float(col[0])
         for file in files[1:]:
             add_line=fi[file].readline()
+            # print 'current line is', add_line, file
             v+=float(add_line.split()[0])
+
         fo.write(str(v/nfile)+'\t-\t-\t-\n')
     fo.close()
+    for file in files: fi[file].close()
     print 'time cost:',time()-tm
     
 def changevalue(ifile,ref,ofile,gfile,step=10,suppress=False,buffer=None):
@@ -267,5 +270,6 @@ def wiq(command='wiq'):
             buffer=args.buffer)
 
 if __name__ == "__main__":
-    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0) # This allows to print each message on screen immediately.
-
+    # sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0) # This allows to print each message on screen immediately.
+    files = ['/home/tmhbxx3/archive/H3K4me3_Encode_wig_splits/code/wiqs/' + f for f in os.listdir('/home/tmhbxx3/archive/H3K4me3_Encode_wig_splits/code/wiqs/')]
+    refquantile(paths=':'.join(files), ofile='/home/tmhbxx3/archive/H3K4me3_Encode_wig_splits/code/wiqs/reference_Encode.wiq', gfile='')
