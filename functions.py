@@ -1469,6 +1469,9 @@ def scn(tpath,name='result',pdis=3000,step=1,mapq=30,clipSize=3,inter=True,intra
     from lib import translocationLinks
     if not os.path.exists(name):os.mkdir(name)
     pairs, groups=pathParser(tpath)
+
+    print pairs, groups
+
     allWigs=deepcopy(groups)
     bindic,readsCount={},{'unmappable':0,'non_unique':0,'unique_inter':0,'unique_intra':0,'unique_other':0,'unique':0,'mappable':0,'trans':0,}#readsCount
     for groupname in groups:
@@ -1476,7 +1479,8 @@ def scn(tpath,name='result',pdis=3000,step=1,mapq=30,clipSize=3,inter=True,intra
         groupfilename,path=os.path.join(name,groupname),groups[groupname]
         open(groupfilename+'.sam','w').close()
         readsCount[groupname]={}
-        if os.path.isfile(path):groups[groupname],allWigs[groupname]=translocationReads(path,bindic=bindic,binSize=binSize,outReadsFile=groupfilename+'.sam',outmode='a',pdis=pdis,step=step,mapq=mapq,clipSize=clipSize,inter=inter,intra=intra,readsCount=readsCount[groupname])
+        if os.path.isfile(path):
+            groups[groupname],allWigs[groupname]=translocationReads(path,bindic=bindic,binSize=binSize,outReadsFile=groupfilename+'.sam',outmode='a',pdis=pdis,step=step,mapq=mapq,clipSize=clipSize,inter=inter,intra=intra,readsCount=readsCount[groupname])
         else:
             groups[groupname],allWigs[groupname]=Wig(step=step),Wig(step=step)
             for file in glob.glob(os.path.join(path,'*sam')):
@@ -1571,6 +1575,32 @@ def scnCompare(tn1,tn2,sf1,sf2,lf1,lf2,lf,pvalue=1e-3,bindic={},width=0,distance
         #except:print no1,no2
 
 if __name__ == "__main__":
-    log10FisherTest()
+    # log10FisherTest()
     #sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0) # This allow DANPOS to print each message on screen immediately.
-    #scn(tpath=sys.argv[1],name=sys.argv[2],pdis=3000,step=1,mapq=30,clipSize=3,inter=True,intra=True,saveWig=True,width=0,distance=250,pheight=1,height=5,zscore=3,linkfold=0,linkLogP=0,binSize=1000,wsize=500,wstep=0,exclude_low_percent=0,exclude_high_percent=1,bnum=100000)
+    pairs = [('MC8.sam', 'MC8p.sam'),
+             ('MC9.sam', 'MC9p.sam'),
+             ('MC13.sam', 'MC13p.sam'),
+             ('MC15.sam', 'MC15p.sam'),
+             ('MC16.sam', 'MC16p.sam'),
+             ('MC17.sam', 'MC19p.sam'),
+             ('MC21.sam', 'MC21p.sam'),
+             ('MC22.sam', 'MC22p.sam'),
+             ('MC26.sam', 'MC26p.sam'),
+             ('MC33.sam', 'MC33p.sam'),
+             ('MC44.sam', 'MC44p.sam'),
+             ('MC50.sam', 'MC50p.sam'),
+             ('MC54.sam', 'MC54p.sam'),
+             ('MC55.sam', 'MC56p.sam'),
+             ('MC58.sam', 'MC58p.sam'),]
+
+    path = '/archive/tmhbxx3/Yeast_Matt/bams/'
+
+    for p in pairs:
+        a, b = p
+        a = path+a
+        b = path+b
+        scn(tpath=a+':'+b, name='/archive/tmhbxx3/Yeast_Matt/result', pdis=3000, step=1, mapq=30, clipSize=3, inter=True, intra=True,
+            saveWig=True, width=0, distance=250, pheight=1, height=5, zscore=3, linkfold=0, linkLogP=0, binSize=1000,
+            wsize=500, wstep=0, exclude_low_percent=0, exclude_high_percent=1, bnum=100000)
+
+    # scn(tpath=sys.argv[1],name=sys.argv[2],pdis=3000,step=1,mapq=30,clipSize=3,inter=True,intra=True,saveWig=True,width=0,distance=250,pheight=1,height=5,zscore=3,linkfold=0,linkLogP=0,binSize=1000,wsize=500,wstep=0,exclude_low_percent=0,exclude_high_percent=1,bnum=100000)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #2.2.2  version
 
-import os, sys, pandas as pd, argparse, sys, os
+import os, sys, pandas as pd, argparse, sys, os, numpy as np
 from time import time
 from functions import danpos
 from math import log10
@@ -1563,9 +1563,10 @@ def runGrid():
         down_stream_range = range(down_stream_distance_range_start, down_stream_distance_range_end, down_stream_distance_range_step)
 
         height_range_start, height_range_end, height_range_step, \
-        height_grid, height_step, height_limit = [int(x) for x in args.height_grid.split(':')[1:]]
-        height_range = range(height_range_start, height_range_end,
-                                           height_range_step)
+        height_grid, height_step, height_limit = [float(x) for x in args.height_grid.split(':')[1:]]
+        print height_grid, height_step, height_limit
+        height_range = [round(x, 2) for x in np.arange(height_range_start, height_range_end,
+                                           height_range_step)]
 
         target_table1 = args.target_table1
         if target_table1.endswith('.txt') or target_table1.endswith('.xls') or target_table1.endswith('.tsv'):

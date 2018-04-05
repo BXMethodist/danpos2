@@ -1603,6 +1603,7 @@ def translocationReads(file,bindic={},binSize=1000000,outReadsFile='out.sam',out
             continue
         else:line2=line
         col1,col2=line1[:-1].split('\t'),line2[:-1].split('\t')
+        # print col1, col2
         chr1,chr2,mapq1,mapq2,pos1,pos2=col1[2],col2[2],float(col1[4]),float(col2[4]),int(col1[3]),int(col2[3])
         if chr1=='*' or chr2=='*':
             nu+=2 #un-mappable

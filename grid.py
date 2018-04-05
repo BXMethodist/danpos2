@@ -659,35 +659,53 @@ def logP_wilcoxon(groupA, groupB, bags=1):
     """
     p_values = []
 
-    for i in range(bags):
-        cur_groupA = np.random.choice(groupA, int(len(groupA)*0.75), replace=True)
-        cur_groupB = np.random.choice(groupB, int(len(groupB)*0.75), replace=True)
-        # cur_groupA = groupA
-        # cur_groupB = groupB
-        try:
-            rank_diff, p = stats.mannwhitneyu(cur_groupA, cur_groupB, alternative='less')
-            # print p
-            # There is a problem in multiple processing. for some reason, the function will return a very small number
-            # However, it could pass the test without problem if just run the corresponding dataframe
-            # if np.log10(p) < -80:
-            #     p_values.append(0)
+    alloc = 0.75
 
-            p_values.append(np.log10(p))
+    if bags == 1:
+        try:
+            rank_diff, p1 = stats.mannwhitneyu(groupA, groupB, alternative='less')
+            rank_diff, p2 = stats.mannwhitneyu(groupB, groupA, alternative='less')
+            if p1 < p2:
+                return np.log10(p1)
+            else:
+                return np.log10(p2)
         except:
-            p_values.append(0)
-    final_p = np.mean(p_values)
-    if final_p > 0.5:
-        return 1-final_p
-    return final_p
+            return np.log10(0)
+    else:
+        for i in range(bags):
+            cur_groupA = np.random.choice(groupA, int(len(groupA)*alloc), replace=True)
+            cur_groupB = np.random.choice(groupB, int(len(groupB)*alloc), replace=True)
+            # cur_groupA = groupA
+            # cur_groupB = groupB
+            # print cur_groupA.shape
+            try:
+                rank_diff, p1 = stats.mannwhitneyu(cur_groupA, cur_groupB, alternative='less')
+                rank_diff, p2 = stats.mannwhitneyu(cur_groupB, cur_groupA, alternative='less')
+                # print p1, p2
+                # print p
+                # There is a problem in multiple processing. for some reason, the function will return a very small number
+                # However, it could pass the test without problem if just run the corresponding dataframe
+                # if np.log10(p) < -80:
+                #     p_values.append(0)
+                if p1 < p2:
+                    p = p1
+                else:
+                    p = p2
+                p_values.append(p)
+            except:
+                p_values.append(0)
+        final_p = np.mean(p_values)
+        return np.log10(final_p)
 
 def logP_fisher(gene_df, all_stat_df, criteria, top_enrich=500, ascending=False):
     total_genes = all_stat_df.shape[0]
+    target_genes = gene_df.shape[0]
     sort_result = all_stat_df.sort_values(by=[criteria], ascending=ascending)
     top_genes = sort_result['gene'].tolist()[:top_enrich]
     overlap = len(set(top_genes).intersection(set(gene_df['gene'].tolist())))
     not_overlap = top_enrich - overlap
     # print overlap, top_enrich, not_overlap, total_genes
-    p = stats.fisher_exact([[overlap, not_overlap], [not_overlap, total_genes - 2 * top_enrich + overlap]],
+    p = stats.fisher_exact([[overlap, target_genes-overlap], [not_overlap, total_genes - not_overlap - target_genes]],
                            alternative='greater')[1]
     return np.log10(p)
 
@@ -740,23 +758,27 @@ def reformat(df):
     df.columns = ['upstream', 'downstream', 'height', 'logP']
     return df
 
-def get_best(directory='./csv/'):
-    parameters = {'upstream': range(-1000000, 1000000, 1000), 'downstream': range(-1000000, 1000000, 1000), 'height': [0,0.25, 0.5,0.75, 1.0,0.1,0.2,0.3,0.4,0.6,0.7,0.8,0.9, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0 ,4.5, 5.0] + range(5, 41)}
+def get_best(directory='./csv/', version='_v6_related', parameters={'upstream': range(-1000000, 1000000, 1000), 'downstream': range(-1000000, 1000000, 1000), 'height': [0,0.25, 0.5,0.75, 1.0,0.1,0.2,0.3,0.4,0.6,0.7,0.8,0.9, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0 ,4.5, 5.0] + range(5, 101)}):
     # parameters = {'upstream': range(-1000000, 1000000, 1000), 'downstream': range(-1000000, 1000000, 1000),
     #               'height': range(5, 301)}
     markers = ['h3k4me1_qn', 'h3k27ac_qn', 'h3k4me3_qn', 'h3k27me3_qn']
     genebodies = ['TSS', 'TTS']
-    features = ['total_width', 'height', 'total_signal', 'kurtosis', 'skewness']
+    features = ['total_width', 'height', 'total_signal', 'kurtosis', 'skewness', 'single_width', 'single_signal', 'coverage']
+    # features = ['kurtosis']
+    # parameters = {'height': [0,0.25, 0.5,0.75, 1.0,0.1,0.2,0.3,0.4,0.6,0.7,0.8,0.9, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0 ,4.5, 5.0] + range(5, 101)}
 #['total_width', 'single_width',  'total_signal', 'kurtosis', 'skewness', 'single_signal',]
-    for genebody in genebodies:
-        for marker in markers:
+    for parameter in parameters.keys():
+        for genebody in genebodies:
             for feature in features:
-                for parameter in parameters.keys():
-                    results = []
-                    if os.path.exists(directory + marker+'_'+genebody+'_gridpath_' + feature+'.csv'):
-                        df = pd.read_csv(directory + marker+'_'+genebody+'_gridpath_' + feature+'.csv')
+                results = {}
+                for marker in markers:
+                    cur_column = marker.replace('_qn', '')
+                    results[cur_column] = {}
+                    if os.path.exists(directory + marker+'_'+genebody+version+'_gridpath_' + feature+'.csv'):
+                        df = pd.read_csv(directory + marker+'_'+genebody+version+'_gridpath_' + feature+'.csv')
                     else:
                         continue
+                    # print 'lala'
                     for p in parameters[parameter]:
                         cur_df = df[df[parameter] == p]
                         for other_parameter in parameters.keys():
@@ -765,10 +787,10 @@ def get_best(directory='./csv/'):
                                 cur_df = cur_df[cur_df[other_parameter].isin(parameters[other_parameter])]
                         if cur_df.shape[0] == 0:
                             continue
-                        results.append((p, cur_df['logP'].min()*-1))
-                    df = pd.DataFrame(results)
-                    df.columns = [parameter, 'best_logP']
-                    df.to_csv(directory+marker+'_'+genebody+'_'+feature+'_'+parameter+'.csv', index=None)
+                        results[cur_column][p] = cur_df['logP'].min()*-1
+                result_df = pd.DataFrame(results)
+                fname = '_'.join([genebody, feature, parameter])
+                result_df.to_csv(directory+fname+'.csv')
 
 def get_best_parameter(directory='./csv/', output_path='./', marker_index=0, feature_index=-2, genebody_index=2):
     output_path += '/' if not output_path.endswith('/') else ''
@@ -776,6 +798,7 @@ def get_best_parameter(directory='./csv/', output_path='./', marker_index=0, fea
     paths = [x for x in os.listdir(directory) if x.find('gridpath') != -1 and x.endswith('.csv')]
     for path in paths:
         df = pd.read_csv(directory+path)
+        df = df[df['height']>=1]
         marker = path.split('_')[marker_index]
         info = path[:-4].split('_')
         feature = '_'.join(info[feature_index:]).replace('gridpath_', '')
@@ -925,6 +948,8 @@ def grid(target_table1, target_table2,
                     process=process, fisher_c=fisher_c)
 
 if __name__ == "__main__":
-    # get_best_parameter(directory='/Users/boxia/PycharmProjects/CIG_logistic_regression/Fig2&Sup/', output_path='/Users/boxia/PycharmProjects/CIG_logistic_regression/Fig2&Sup/')
-    get_best(directory='/Users/boxia/PycharmProjects/CIG_logistic_regression/Fig2&Sup/')
+    path = '/home/tmhbxx3/scratch/CIG/test/Fig2/raw/'
+    outpath = '/home/tmhbxx3/scratch/CIG/test/Fig2/'
+    get_best_parameter(directory=path, output_path=outpath)
+    get_best(directory=outpath)
     pass
